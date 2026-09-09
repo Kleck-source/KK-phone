@@ -10,6 +10,7 @@ import {
     collapseFloatingDock,
     setFloatingDockAnchor,
     setActiveFloatingTool,
+    clampFloatingDockAnchor,
 } from "@/lib/floating-dock-store";
 import {
     getCharacterBinding,
@@ -150,6 +151,20 @@ export function QuickActionFloat() {
             document.removeEventListener("pointerdown", handleOutside);
         };
     }, [floatingDockEnabled, dockState.isExpanded, open]);
+
+    // 贴边坐标是按像素持久化的，换了视口尺寸要先夹回屏幕内，否则球可能落在屏幕外碰不到
+    useLayoutEffect(() => {
+        if (!floatingDockEnabled) return;
+        const layer = layerRef.current;
+        if (!layer) return;
+        const apply = () => {
+            const rect = layer.getBoundingClientRect();
+            clampFloatingDockAnchor(rect.width, rect.height);
+        };
+        apply();
+        window.addEventListener("resize", apply);
+        return () => window.removeEventListener("resize", apply);
+    }, [floatingDockEnabled, enabled]);
 
     useLayoutEffect(() => {
         const layer = layerRef.current;
