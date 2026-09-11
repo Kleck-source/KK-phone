@@ -277,7 +277,7 @@ export function MomentPostCard({ post, onUpdate, onRequestDelete, onOpenCommentC
         setShowPhotoPromptEditor(false);
         setPhotoRegenerating(true);
         setPhotoRetryError("");
-        retryMomentGeneratedPhoto(post, nextDescription, latestHasRef ? photoUseReferenceDraft : false)
+        retryMomentGeneratedPhoto(post, nextDescription, latestHasRef ? photoUseReferenceDraft : undefined)
             .then(async (updated) => {
                 if (updated?.photoUrl?.startsWith("asset://")) {
                     const assetId = updated.photoUrl.slice(8);

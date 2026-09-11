@@ -1311,7 +1311,7 @@ function ImageBubble({
         setShowPromptEditor(false);
         setRegenerating(true);
         setRetryError("");
-        retryChatGeneratedImage(msg, characterId, nextDescription, latestHasRef ? useReferenceDraft : false)
+        retryChatGeneratedImage(msg, characterId, nextDescription, latestHasRef ? useReferenceDraft : undefined)
             .then(async (updated) => {
                 if (updated?.mediaUrl) {
                     try {
@@ -1981,7 +1981,7 @@ function MediaFileBubble({
         setShowImagePromptEditor(false);
         setImageRegenerating(true);
         setImageRetryError("");
-        retryChatGeneratedImage(msg, characterId, nextDescription, latestHasRef ? imageUseReferenceDraft : false)
+        retryChatGeneratedImage(msg, characterId, nextDescription, latestHasRef ? imageUseReferenceDraft : undefined)
             .then(async (updated) => {
                 if (updated?.mediaUrl) {
                     try {

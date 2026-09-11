@@ -1829,11 +1829,13 @@ function replacePhotoDirectiveDescription(
 ): string | undefined {
     const oldDesc = oldDescription.trim();
     const nextDesc = nextDescription.trim();
-    if (!text || (!oldDesc && !nextDesc)) return text;
+    // 原描述必须匹配到具体那一条照片标签才改：一条回复里可能有多张照片，
+    // 放宽成"原描述为空也改"会把其它照片的描述一并覆盖。
+    if (!text || !oldDesc || !nextDesc) return text;
 
     let changed = false;
     const withExplicitMode = text.replace(/\[照片[:：]\s*(使用参考图|不使用参考图)\s*[:：]\s*([^\]]+?)\]/g, (full, mode: string, desc: string) => {
-        if (oldDesc && desc.trim() !== oldDesc) return full;
+        if (desc.trim() !== oldDesc) return full;
         const targetMode = nextUseReferenceImage !== undefined
             ? (nextUseReferenceImage ? "使用参考图" : "不使用参考图")
             : mode;
@@ -1844,7 +1846,7 @@ function replacePhotoDirectiveDescription(
     if (changed) return withExplicitMode;
 
     return text.replace(/\[照片[:：]\s*([^\]]+?)\]/g, (full, desc: string) => {
-        if (oldDesc && desc.trim() !== oldDesc) return full;
+        if (desc.trim() !== oldDesc) return full;
         const targetMode = nextUseReferenceImage !== undefined
             ? (nextUseReferenceImage ? "使用参考图" : "不使用参考图")
             : undefined;
