@@ -1895,25 +1895,11 @@ function CharArchiveView({
   const previewImageState = useRef({ x: polaroidImageX, y: polaroidImageY, zoom: polaroidImageZoom });
   const previewRef = useRef<HTMLDivElement>(null);
   const previewImageRef = useRef<HTMLImageElement>(null);
-  const [previewBoxSize, setPreviewBoxSize] = useState({ width: 0, height: 0 });
   const [previewImageNaturalSize, setPreviewImageNaturalSize] = useState({ width: 0, height: 0 });
   const [showUrlInput, setShowUrlInput] = useState(false);
   const [urlInput, setUrlInput] = useState("");
   const [avatarBusy, setAvatarBusy] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-
-  useLayoutEffect(() => {
-    const element = previewRef.current;
-    if (!element) return;
-    const updateSize = () => {
-      const rect = element.getBoundingClientRect();
-      setPreviewBoxSize({ width: rect.width, height: rect.height });
-    };
-    updateSize();
-    const observer = typeof ResizeObserver !== "undefined" ? new ResizeObserver(updateSize) : null;
-    observer?.observe(element);
-    return () => observer?.disconnect();
-  }, [polaroidStyle]);
 
   // Ctrl+滚轮缩放：React 把 wheel 注册成被动监听，onWheel 里 preventDefault 不生效，
   // 页面会跟着一起缩放。这里挂原生非被动监听。
