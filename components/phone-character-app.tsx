@@ -1915,6 +1915,22 @@ function CharArchiveView({
     return () => observer?.disconnect();
   }, [polaroidStyle]);
 
+  // Ctrl+滚轮缩放：React 把 wheel 注册成被动监听，onWheel 里 preventDefault 不生效，
+  // 页面会跟着一起缩放。这里挂原生非被动监听。
+  useEffect(() => {
+    const element = previewRef.current;
+    if (!element) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      const zoom = clampCharacterImageValue(previewImageState.current.zoom - e.deltaY * 0.005, 1, 3, 1);
+      previewImageState.current.zoom = zoom;
+      setPolaroidImageZoom(zoom);
+    };
+    element.addEventListener("wheel", onWheel, { passive: false });
+    return () => element.removeEventListener("wheel", onWheel);
+  }, [isEditing]);
+
   useLayoutEffect(() => {
     setPreviewImageNaturalSize({ width: 0, height: 0 });
     const image = previewImageRef.current;
@@ -2203,26 +2219,10 @@ function CharArchiveView({
     }
   }
 
-  function handlePreviewWheel(e: React.WheelEvent<HTMLDivElement>) {
-    if (!e.ctrlKey) return;
-    e.preventDefault();
-    const zoom = clampCharacterImageValue(previewImageState.current.zoom - e.deltaY * 0.005, 1, 3, 1);
-    previewImageState.current.zoom = zoom;
-    setPolaroidImageZoom(zoom);
-  }
-
   function handlePreviewPointerUp(e: React.PointerEvent<HTMLDivElement>) {
     previewPointers.current.delete(e.pointerId);
     previewGesture.current = null;
   }
-
-  const previewCoverScale = previewImageNaturalSize.width && previewImageNaturalSize.height && previewBoxSize.width && previewBoxSize.height
-    ? Math.max(previewBoxSize.width / previewImageNaturalSize.width, previewBoxSize.height / previewImageNaturalSize.height) * polaroidImageZoom
-    : 0;
-  const previewRenderedWidth = previewImageNaturalSize.width * previewCoverScale;
-  const previewRenderedHeight = previewImageNaturalSize.height * previewCoverScale;
-  const previewTranslateX = (polaroidImageX - 50) / 100 * (previewRenderedWidth - previewBoxSize.width);
-  const previewTranslateY = (polaroidImageY - 50) / 100 * (previewRenderedHeight - previewBoxSize.height);
 
   const archiveFrame = (
       <div className="char-archive-frame">
@@ -2438,7 +2438,6 @@ function CharArchiveView({
               onPointerMove={handlePreviewPointerMove}
               onPointerUp={handlePreviewPointerUp}
               onPointerCancel={handlePreviewPointerUp}
-              onWheel={handlePreviewWheel}
               aria-label="照片墙头像取景预览，可拖动或双指缩放"
             >
               {avatar ? (
