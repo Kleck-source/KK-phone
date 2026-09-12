@@ -244,6 +244,12 @@ export function normalizeXiaohongshuComment(raw: unknown, fallbackNoteId = ""): 
   };
 }
 
+function normalizeAssetIdList(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const ids = value.map(id => cleanText(id, 160)).filter(Boolean);
+  return ids.length > 0 ? ids : undefined;
+}
+
 export function normalizeXiaohongshuNote(raw: unknown): XiaohongshuNote | null {
   if (!raw || typeof raw !== "object") return null;
   const record = raw as Record<string, unknown>;
@@ -278,9 +284,7 @@ export function normalizeXiaohongshuNote(raw: unknown): XiaohongshuNote | null {
     recentSaveNames: normalizeNameList(record.recentSaveNames ?? record.recent_save_names),
     comments,
     imageAssetId: cleanText(record.imageAssetId ?? record.image_asset_id, 160) || undefined,
-    imageAssetIds: Array.isArray(record.imageAssetIds ?? record.image_asset_ids)
-      ? (record.imageAssetIds ?? record.image_asset_ids as unknown[]).map(id => cleanText(id, 160)).filter(Boolean)
-      : undefined,
+    imageAssetIds: normalizeAssetIdList(record.imageAssetIds ?? record.image_asset_ids),
     imageDescription: cleanMultiline(record.imageDescription ?? record.image_description, 500) || undefined,
     imageWidth: optionalPositiveNumber(record.imageWidth ?? record.image_width),
     imageHeight: optionalPositiveNumber(record.imageHeight ?? record.image_height),

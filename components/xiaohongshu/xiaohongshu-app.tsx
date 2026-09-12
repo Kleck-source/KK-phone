@@ -84,6 +84,7 @@ import {
   type XiaohongshuState,
   type XiaohongshuTabId,
   type XiaohongshuUserPostInput,
+  type XiaohongshuDraftImage,
 } from "@/lib/xiaohongshu-types";
 
 type XiaohongshuAppProps = {
