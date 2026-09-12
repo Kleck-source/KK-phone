@@ -76,17 +76,20 @@ export function ImageGenerationSettings() {
     const [naiTokenStatus, setNaiTokenStatus] = useState<Status | null>(null);
     const [testPreviewUrl, setTestPreviewUrl] = useState<string | null>(null);
     const [pendingDeletePresetId, setPendingDeletePresetId] = useState<string | null>(null);
-    const openaiPresets = settings.openaiPresets?.length ? settings.openaiPresets : [{
-        id: "preset_openai_default",
-        name: "默认方案",
-        requestMode: settings.requestMode,
-        apiKey: settings.apiKey,
-        baseUrl: settings.baseUrl,
-        model: settings.model,
-        size: settings.size,
-        quality: settings.quality,
-        extraPrompt: settings.extraPrompt,
-    } satisfies OpenAiImagePreset];
+    const [pendingDeleteOpenAiPresetId, setPendingDeleteOpenAiPresetId] = useState<string | null>(null);
+    const openaiPresets = useMemo<OpenAiImagePreset[]>(() => (
+        settings.openaiPresets?.length ? settings.openaiPresets : [{
+            id: "preset_openai_default",
+            name: "默认方案",
+            requestMode: settings.requestMode,
+            apiKey: settings.apiKey,
+            baseUrl: settings.baseUrl,
+            model: settings.model,
+            size: settings.size,
+            quality: settings.quality,
+            extraPrompt: settings.extraPrompt,
+        }]
+    ), [settings]);
     const activeOpenAiPresetId = settings.activeOpenAiPresetId && openaiPresets.some(p => p.id === settings.activeOpenAiPresetId)
         ? settings.activeOpenAiPresetId
         : openaiPresets[0].id;
@@ -610,7 +613,7 @@ export function ImageGenerationSettings() {
                                 <label className="menu-label text-sm font-semibold">OpenAI API 配置预设</label>
                                 <div className="grid grid-cols-2 gap-2 sm:flex">
                                     <button type="button" onClick={addOpenAiPreset} className="ui-btn ui-btn-soft-action min-h-11 !px-3 !py-2 text-xs flex items-center gap-1"><Plus size={14} />新建预设</button>
-                                    {openaiPresets.length > 1 && <button type="button" onClick={deleteOpenAiPreset} className="ui-btn ui-btn-danger min-h-11 !px-3 !py-2 text-xs flex items-center gap-1"><Trash2 size={14} />删除预设</button>}
+                                    {openaiPresets.length > 1 && <button type="button" onClick={() => setPendingDeleteOpenAiPresetId(activeOpenAiPresetId)} className="ui-btn ui-btn-danger min-h-11 !px-3 !py-2 text-xs flex items-center gap-1"><Trash2 size={14} />删除预设</button>}
                                 </div>
                             </div>
                             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -926,6 +929,21 @@ export function ImageGenerationSettings() {
                 </div>
             )}
 
+            {pendingDeleteOpenAiPresetId && (
+                <ConfirmDialog
+                    title="确认删除预设？"
+                    message={`预设“${openaiPresets.find(p => p.id === pendingDeleteOpenAiPresetId)?.name || "未命名预设"}”删除后无法恢复，其中的 API Key 也会一起删除。`}
+                    icon={Trash2}
+                    variant="danger"
+                    confirmLabel="确认删除"
+                    cancelLabel="取消"
+                    onConfirm={() => {
+                        deleteOpenAiPreset();
+                        setPendingDeleteOpenAiPresetId(null);
+                    }}
+                    onCancel={() => setPendingDeleteOpenAiPresetId(null)}
+                />
+            )}
             {pendingDeletePresetId && (
                 <ConfirmDialog
                     title="确认删除预设？"
