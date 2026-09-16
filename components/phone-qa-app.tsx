@@ -821,11 +821,14 @@ function QaRepoSheet({ onClose, onSaved }: { onClose: () => void; onSaved: () =>
   );
 }
 
+// ── 跨会话独立草稿记忆（退出工坊/切换会话不丢字） ──
+const qaDraftMap = new Map<string, string>();
+
 // ── App 本体 ─────────────────────────────────────────
 
 export function PhoneQaApp({ onClose, onNotice }: PhoneQaAppProps) {
   const snapshot = useSyncExternalStore(subscribeQaChat, getQaChatSnapshot, getQaChatSnapshot);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState(() => (snapshot.activeSessionId ? (qaDraftMap.get(snapshot.activeSessionId) ?? "") : ""));
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [repoSheetOpen, setRepoSheetOpen] = useState(false);
   const [repoConnected, setRepoConnected] = useState(false);
@@ -921,6 +924,24 @@ export function PhoneQaApp({ onClose, onNotice }: PhoneQaAppProps) {
     stickToBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
   }, []);
 
+  // 进场与切换会话时：多帧持续贴底校准（对抗 Markdown / 图片异步排版）
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el || !snapshot.activeSessionId) return;
+    stickToBottomRef.current = true;
+    el.scrollTop = el.scrollHeight;
+    let count = 0;
+    const timer = setInterval(() => {
+      if (!bodyRef.current || !stickToBottomRef.current) {
+        clearInterval(timer);
+        return;
+      }
+      bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+      if (++count >= 10) clearInterval(timer);
+    }, 60);
+    return () => clearInterval(timer);
+  }, [snapshot.activeSessionId]);
+
   useEffect(() => {
     const el = bodyRef.current;
     if (el && stickToBottomRef.current) {
@@ -985,9 +1006,26 @@ export function PhoneQaApp({ onClose, onNotice }: PhoneQaAppProps) {
     el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
   }, []);
 
+  // 切换会话时自动恢复对应会话的草稿
+  useEffect(() => {
+    const draft = snapshot.activeSessionId ? (qaDraftMap.get(snapshot.activeSessionId) ?? "") : "";
+    setInput(draft);
+    requestAnimationFrame(autoGrow);
+  }, [snapshot.activeSessionId, autoGrow]);
+
+  const handleInputChange = useCallback((val: string) => {
+    setInput(val);
+    if (snapshot.activeSessionId) {
+      if (val) qaDraftMap.set(snapshot.activeSessionId, val);
+      else qaDraftMap.delete(snapshot.activeSessionId);
+    }
+    autoGrow();
+  }, [snapshot.activeSessionId, autoGrow]);
+
   const handleSend = useCallback(() => {
     const text = input.trim();
     if ((!text && pendingImages.length === 0 && pendingFiles.length === 0) || snapshot.isGenerating || snapshot.isCompacting) return;
+    if (snapshot.activeSessionId) qaDraftMap.delete(snapshot.activeSessionId);
     setInput("");
     const images = pendingImages;
     const files = pendingFiles;
@@ -997,7 +1035,7 @@ export function PhoneQaApp({ onClose, onNotice }: PhoneQaAppProps) {
     stickToBottomRef.current = true;
     requestAnimationFrame(autoGrow);
     void sendQaMessage(text, images.length ? images : undefined, files.length ? files : undefined);
-  }, [input, pendingImages, pendingFiles, snapshot.isGenerating, snapshot.isCompacting, autoGrow]);
+  }, [input, pendingImages, pendingFiles, snapshot.isGenerating, snapshot.isCompacting, snapshot.activeSessionId, autoGrow]);
 
   // 附加图片：仅识图已开启的 API 显示入口；读为 dataURL，单张限 4MB
   const handlePickImages = useCallback((files: FileList | null, target: "composer" | "edit") => {
@@ -1254,10 +1292,7 @@ export function PhoneQaApp({ onClose, onNotice }: PhoneQaAppProps) {
             placeholder="输入你的问题…"
             rows={1}
             value={input}
-            onChange={(e) => {
-              setInput(e.target.value);
-              autoGrow();
-            }}
+            onChange={(e) => handleInputChange(e.target.value)}
           />
           <div className="qa-composer-toolbar">
             <input
