@@ -976,9 +976,10 @@ export function PhoneQaApp({ onClose, onNotice }: PhoneQaAppProps) {
         if (smooth) target.scrollTo({ top: target.scrollHeight, behavior: "smooth" });
         else target.scrollTop = target.scrollHeight;
       },
-      carryOverSession: async () => {
-        if (!snapshot.activeSessionId) return null;
-        return carryOverQaSession(snapshot.activeSessionId);
+      carryOverSession: async (targetSessionId?: string) => {
+        const targetId = targetSessionId || snapshot.activeSessionId;
+        if (!targetId) return null;
+        return carryOverQaSession(targetId);
       },
     };
 
