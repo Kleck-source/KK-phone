@@ -53,6 +53,7 @@ import {
   type QaTextAttachment,
   type QaToolStatus,
 } from "@/lib/qa-chat-store";
+import { readCompressedImageDataUrl } from "@/lib/chat-engine";
 import {
   getQaPageChars,
   setQaPageChars,
@@ -842,7 +843,7 @@ export function PhoneQaApp({ onClose, onNotice }: PhoneQaAppProps) {
   const [pendingFiles, setPendingFiles] = useState<QaTextAttachment[]>([]);
   const [attachMenuOpen, setAttachMenuOpen] = useState(false);
   const [viewerImage, setViewerImage] = useState<string | null>(null);
-  const [editingMsg, setEditingMsg] = useState<QaMsg | null>(null);
+  const [editingTarget, setEditingTarget] = useState<{ msg: QaMsg; sessionId: string } | null>(null);
   const [editText, setEditText] = useState("");
   const [editImages, setEditImages] = useState<string[]>([]);
   const [editFiles, setEditFiles] = useState<QaTextAttachment[]>([]);
@@ -1037,21 +1038,20 @@ export function PhoneQaApp({ onClose, onNotice }: PhoneQaAppProps) {
     void sendQaMessage(text, images.length ? images : undefined, files.length ? files : undefined);
   }, [input, pendingImages, pendingFiles, snapshot.isGenerating, snapshot.isCompacting, snapshot.activeSessionId, autoGrow]);
 
-  // 附加图片：仅识图已开启的 API 显示入口；读为 dataURL，单张限 4MB
+  // 附加图片：仅识图已开启的 API 显示入口；自动缩放压缩为适度体积的 JPEG DataURL（防止撑爆请求导致 Failed to fetch）
   const handlePickImages = useCallback((files: FileList | null, target: "composer" | "edit") => {
     if (!files?.length) return;
     const setter = target === "edit" ? setEditImages : setPendingImages;
     for (const file of Array.from(files).slice(0, 6)) {
-      if (file.size > 4 * 1024 * 1024) {
-        onNotice?.(`「${file.name}」超过 4MB，已跳过。`);
+      if (file.size > 8 * 1024 * 1024) {
+        onNotice?.(`「${file.name}」超过 8MB，已跳过。`);
         continue;
       }
-      const reader = new FileReader();
-      reader.onload = () => {
-        const url = typeof reader.result === "string" ? reader.result : "";
+      void readCompressedImageDataUrl(file).then((url) => {
         if (url) setter((current) => (current.length >= 6 ? current : [...current, url]));
-      };
-      reader.readAsDataURL(file);
+      }).catch(() => {
+        onNotice?.(`「${file.name}」图片解析失败。`);
+      });
     }
   }, [onNotice]);
 
@@ -1101,40 +1101,42 @@ export function PhoneQaApp({ onClose, onNotice }: PhoneQaAppProps) {
   }, [onNotice]);
 
   const handleEditMessage = useCallback((msg: QaMsg) => {
-    setEditingMsg(msg);
+    if (!snapshot.activeSessionId) return;
+    setEditingTarget({ msg, sessionId: snapshot.activeSessionId });
     setEditText(msg.content);
     setEditImages(msg.images ?? []);
     setEditFiles(msg.files ?? []);
     setEditAttachMenuOpen(false);
-  }, []);
+  }, [snapshot.activeSessionId]);
 
   const handleSaveEdit = useCallback((andResend: boolean) => {
-    if (!editingMsg || !snapshot.activeSessionId) return;
+    if (!editingTarget) return;
+    const { msg, sessionId } = editingTarget;
     const result = andResend
       ? editAndResendQaMessage(
-          snapshot.activeSessionId,
-          editingMsg.id,
+          sessionId,
+          msg.id,
           editText,
           editImages.length ? editImages : undefined,
           editFiles.length ? editFiles : undefined,
         )
       : updateQaMessageContent(
-          snapshot.activeSessionId,
-          editingMsg.id,
+          sessionId,
+          msg.id,
           editText,
-          editingMsg.role === "user" && editImages.length ? editImages : undefined,
-          editingMsg.role === "user" && editFiles.length ? editFiles : undefined,
+          msg.role === "user" && editImages.length ? editImages : undefined,
+          msg.role === "user" && editFiles.length ? editFiles : undefined,
         );
     if (!result.ok) {
       onNotice?.(result.reason);
       return;
     }
-    setEditingMsg(null);
+    setEditingTarget(null);
     onNotice?.(andResend ? "已修改并重新发送" : "已保存消息内容");
-  }, [editingMsg, editText, editImages, editFiles, snapshot.activeSessionId, onNotice]);
+  }, [editingTarget, editText, editImages, editFiles, onNotice]);
 
-  const editResendBlockReason = editingMsg?.role === "user" && snapshot.activeSessionId
-    ? getQaEditAndResendBlockReason(snapshot.activeSessionId, editingMsg.id)
+  const editResendBlockReason = editingTarget?.msg.role === "user"
+    ? getQaEditAndResendBlockReason(editingTarget.sessionId, editingTarget.msg.id)
     : null;
   const editIsEmpty = !editText.trim() && editImages.length === 0 && editFiles.length === 0;
 
@@ -1476,12 +1478,12 @@ export function PhoneQaApp({ onClose, onNotice }: PhoneQaAppProps) {
         </div>
       )}
 
-      {editingMsg && (
-        <div className="qa-edit-backdrop" onClick={() => setEditingMsg(null)}>
+      {editingTarget && (
+        <div className="qa-edit-backdrop" onClick={() => setEditingTarget(null)}>
           <div className="qa-edit-dialog" role="dialog" aria-label="修改消息" onClick={(e) => e.stopPropagation()}>
             <div className="qa-edit-head">
               <span className="qa-edit-title">修改消息（原始内容）</span>
-              <button type="button" className="qa-icon-btn" onClick={() => setEditingMsg(null)} aria-label="关闭">
+              <button type="button" className="qa-icon-btn" onClick={() => setEditingTarget(null)} aria-label="关闭">
                 <X size={16} />
               </button>
             </div>
@@ -1494,7 +1496,7 @@ export function PhoneQaApp({ onClose, onNotice }: PhoneQaAppProps) {
               aria-label="消息原始内容"
               placeholder="这里显示的是消息的原始内容，不会被前端渲染，可放心查看特殊标签。"
             />
-            {editingMsg.role === "user" && editImages.length > 0 && (
+            {editingTarget.msg.role === "user" && editImages.length > 0 && (
               <div className="qa-attach-strip">
                 {editImages.map((url, index) => (
                   <div className="qa-attach-thumb" key={index}>
@@ -1513,7 +1515,7 @@ export function PhoneQaApp({ onClose, onNotice }: PhoneQaAppProps) {
                 ))}
               </div>
             )}
-            {editingMsg.role === "user" && editFiles.length > 0 && (
+            {editingTarget.msg.role === "user" && editFiles.length > 0 && (
               <div className="qa-file-strip">
                 {editFiles.map((file) => (
                   <span className="qa-file-chip is-removable" key={file.name} title={file.name}>
@@ -1530,7 +1532,7 @@ export function PhoneQaApp({ onClose, onNotice }: PhoneQaAppProps) {
                 ))}
               </div>
             )}
-            {editingMsg.role === "user" && (
+            {editingTarget.msg.role === "user" && (
               <div className="qa-edit-attachment-row">
                 <input
                   ref={editFileInputRef}
@@ -1583,25 +1585,25 @@ export function PhoneQaApp({ onClose, onNotice }: PhoneQaAppProps) {
                 </div>
               </div>
             )}
-            {editingMsg.role === "user" && editResendBlockReason && (
+            {editingTarget.msg.role === "user" && editResendBlockReason && (
               <div className="qa-edit-warning" role="status">{editResendBlockReason}</div>
             )}
-            {editingMsg.role === "user" && !editResendBlockReason && (
+            {editingTarget.msg.role === "user" && !editResendBlockReason && (
               <div className="qa-edit-hint">保存并发送会删除这条消息及其后续回复，再根据修改后的内容重新生成。</div>
             )}
             <div className="qa-edit-actions">
-              <button type="button" className="qa-devnotice-btn" onClick={() => setEditingMsg(null)}>
+              <button type="button" className="qa-devnotice-btn" onClick={() => setEditingTarget(null)}>
                 取消
               </button>
               <button
                 type="button"
-                className={`qa-devnotice-btn ${editingMsg.role === "assistant" ? "is-primary" : ""}`}
+                className={`qa-devnotice-btn ${editingTarget.msg.role === "assistant" ? "is-primary" : ""}`}
                 onClick={() => handleSaveEdit(false)}
                 disabled={editIsEmpty || snapshot.isGenerating || snapshot.isCompacting}
               >
                 保存
               </button>
-              {editingMsg.role === "user" && (
+              {editingTarget.msg.role === "user" && (
                 <button
                   type="button"
                   className="qa-devnotice-btn is-primary"
