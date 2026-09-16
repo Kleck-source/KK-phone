@@ -728,19 +728,24 @@ async function callQaAgentNative(apiConfig: ApiConfig, history: QaEngineMessage[
         } catch (streamError) {
             if (options?.signal?.aborted) throw streamError;
             await callbacks?.onStreamFallback?.(formatQaErrorMessage(streamError));
-            const fallbackRequest = buildProviderRequest(apiConfig, null, messages, { tools, maxTokens: getQaMaxOutputTokens() ?? undefined });
-            const response = await fetchLlmPayload(fallbackRequest, { signal: options?.signal });
-            if (!response.ok) throw new Error(`API ${response.status}: ${await response.text()}`);
-            const parsed = parseProviderResponse(fallbackRequest.providerKind, await response.json());
-            if (parsed.content) await filter.push(parsed.content);
-            result = {
-                content: parsed.content || "",
-                reasoning: parsed.reasoning,
-                openRouterReasoningDetails: parsed.openRouterReasoningDetails,
-                toolCalls: parsed.toolCalls || [],
-                rawResponse: "",
-                providerKind: fallbackRequest.providerKind,
-            };
+            try {
+                const fallbackRequest = buildProviderRequest(apiConfig, null, messages, { tools, maxTokens: getQaMaxOutputTokens() ?? undefined });
+                const response = await fetchLlmPayload(fallbackRequest, { signal: options?.signal });
+                if (!response.ok) throw new Error(`API ${response.status}: ${await response.text()}`);
+                const parsed = parseProviderResponse(fallbackRequest.providerKind, await response.json());
+                if (parsed.content) await filter.push(parsed.content);
+                result = {
+                    content: parsed.content || "",
+                    reasoning: parsed.reasoning,
+                    openRouterReasoningDetails: parsed.openRouterReasoningDetails,
+                    toolCalls: parsed.toolCalls || [],
+                    rawResponse: "",
+                    providerKind: fallbackRequest.providerKind,
+                };
+            } catch (fallbackError) {
+                // 中转站/代理若对 tools 完全不兼容抛出 Failed to fetch，自动安全降级为文本协议
+                return await callQaAgentText(apiConfig, history, options);
+            }
             // 流式失败转非流式成功的这一跳也要进工坊「调用记录」：主路径（sendLLMToolStreamRequest）
             // 由聊天引擎按 appId 分流落日志，这条 fallback 是本文件自己发的请求，不补就漏一条，
             // 而恰恰是刚出过流式故障、最需要排障记录的场景。
