@@ -21,6 +21,7 @@ import type { QaCreatedContent } from "@/lib/qa-agent-tools";
 import {
   applyQaCommit,
   cancelQaCommit,
+  carryOverQaSession,
   clearQaToolHistory,
   createQaSession,
   deleteQaSession,
@@ -441,6 +442,7 @@ function QaSessionDrawer({
   onCreate,
   onOpenSettings,
   onRenameRequest,
+  onCarryOver,
 }: {
   sessions: QaSession[];
   activeId: string | null;
@@ -449,6 +451,7 @@ function QaSessionDrawer({
   onCreate: () => void;
   onOpenSettings: () => void;
   onRenameRequest: (id: string, title: string) => void;
+  onCarryOver: (id: string) => void;
 }) {
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
 
@@ -522,6 +525,18 @@ function QaSessionDrawer({
                   }}
                 >
                   <Pencil size={14} /> 重命名
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="qa-drawer-menu-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onCarryOver(session.id);
+                    setMenuOpenId(null);
+                  }}
+                >
+                  <Square size={14} /> 结转新会话
                 </button>
                 <button
                   type="button"
@@ -913,6 +928,56 @@ export function PhoneQaApp({ onClose, onNotice }: PhoneQaAppProps) {
     }
   }, [messages]);
 
+  // ── 工坊开放插件宿主接口与生命周期广播 ──
+  useEffect(() => {
+    const runtime = {
+      version: "2.0.0",
+      getContainer: () => bodyRef.current,
+      getActiveSessionId: () => snapshot.activeSessionId,
+      getMessages: () => messages,
+      scrollToBottom: (smooth = true) => {
+        const target = bodyRef.current;
+        if (!target) return;
+        stickToBottomRef.current = true;
+        if (smooth) target.scrollTo({ top: target.scrollHeight, behavior: "smooth" });
+        else target.scrollTop = target.scrollHeight;
+      },
+      carryOverSession: async () => {
+        if (!snapshot.activeSessionId) return null;
+        return carryOverQaSession(snapshot.activeSessionId);
+      },
+    };
+
+    (window as unknown as { __WORKSHOP_RUNTIME__?: typeof runtime }).__WORKSHOP_RUNTIME__ = runtime;
+    window.dispatchEvent(new CustomEvent("workshop:open", { detail: runtime }));
+
+    return () => {
+      window.dispatchEvent(new CustomEvent("workshop:close"));
+      delete (window as unknown as { __WORKSHOP_RUNTIME__?: typeof runtime }).__WORKSHOP_RUNTIME__;
+    };
+  }, [snapshot.activeSessionId, messages]);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("workshop:update", {
+      detail: { sessionId: snapshot.activeSessionId, messageCount: messages.length }
+    }));
+  }, [snapshot.activeSessionId, messages]);
+
+  const handleCarryOverSession = useCallback(async () => {
+    if (!snapshot.activeSessionId) return;
+    if (snapshot.isGenerating) {
+      onNotice?.("小坊正在执行任务，完成后再结转。");
+      return;
+    }
+    const newId = await carryOverQaSession(snapshot.activeSessionId);
+    if (newId) {
+      onNotice?.("已提取记忆并转结到新会话！Token 空间已重置。");
+      setDrawerOpen(false);
+    } else {
+      onNotice?.("当前会话暂无内容或结转失败。");
+    }
+  }, [snapshot.activeSessionId, snapshot.isGenerating, onNotice]);
+
   const autoGrow = useCallback(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -1062,6 +1127,7 @@ export function PhoneQaApp({ onClose, onNotice }: PhoneQaAppProps) {
           setRenameTarget({ id, title });
           setRenameTitle(title);
         }}
+        onCarryOver={handleCarryOverSession}
       />
       <div className={`qa-stage ${drawerOpen ? "is-pushed" : ""}`}>
       <div className="qa-ambient" aria-hidden />

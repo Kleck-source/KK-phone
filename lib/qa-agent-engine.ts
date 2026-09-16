@@ -86,11 +86,12 @@ function parseSseEvents(buffer: string): { events: string[]; rest: string } {
 function qaStreamIdleMs(): number {
     try {
         const raw = Number(localStorage.getItem("ai_phone_qa_stream_idle_ms"));
-        if (Number.isFinite(raw) && raw >= 1_000 && raw <= 600_000) return Math.floor(raw);
+        if (Number.isFinite(raw) && raw >= 1_000 && raw <= 3_600_000) return Math.floor(raw);
     } catch {
         // ignore
     }
-    return 90_000;
+    // 默认放宽到 30 分钟，彻底防止思考模型（DeepSeek R1/o1/Gemini Thinking）与慢中转被误判超时
+    return 1_800_000;
 }
 
 async function streamQaProviderRequest(
@@ -99,7 +100,7 @@ async function streamQaProviderRequest(
     callbacks?: QaStreamCallbacks,
 ): Promise<{ content: string; reasoning: string }> {
     const llmAbort = new AbortController();
-    const llmTimeout = setTimeout(() => llmAbort.abort(), 500_000);
+    const llmTimeout = setTimeout(() => llmAbort.abort(), 1_800_000);
     const abortHandler = () => llmAbort.abort();
     if (options?.signal) {
         if (options.signal.aborted) llmAbort.abort();
