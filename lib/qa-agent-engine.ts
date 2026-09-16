@@ -86,12 +86,11 @@ function parseSseEvents(buffer: string): { events: string[]; rest: string } {
 function qaStreamIdleMs(): number {
     try {
         const raw = Number(localStorage.getItem("ai_phone_qa_stream_idle_ms"));
-        if (Number.isFinite(raw) && raw >= 1_000 && raw <= 3_600_000) return Math.floor(raw);
+        if (Number.isFinite(raw) && raw >= 1_000 && raw <= 600_000) return Math.floor(raw);
     } catch {
         // ignore
     }
-    // 默认放宽到 30 分钟，彻底防止思考模型（DeepSeek R1/o1/Gemini Thinking）与慢中转被误判超时
-    return 1_800_000;
+    return 90_000;
 }
 
 async function streamQaProviderRequest(
@@ -100,7 +99,7 @@ async function streamQaProviderRequest(
     callbacks?: QaStreamCallbacks,
 ): Promise<{ content: string; reasoning: string }> {
     const llmAbort = new AbortController();
-    const llmTimeout = setTimeout(() => llmAbort.abort(), 1_800_000);
+    const llmTimeout = setTimeout(() => llmAbort.abort(), 500_000);
     const abortHandler = () => llmAbort.abort();
     if (options?.signal) {
         if (options.signal.aborted) llmAbort.abort();
@@ -728,24 +727,19 @@ async function callQaAgentNative(apiConfig: ApiConfig, history: QaEngineMessage[
         } catch (streamError) {
             if (options?.signal?.aborted) throw streamError;
             await callbacks?.onStreamFallback?.(formatQaErrorMessage(streamError));
-            try {
-                const fallbackRequest = buildProviderRequest(apiConfig, null, messages, { tools, maxTokens: getQaMaxOutputTokens() ?? undefined });
-                const response = await fetchLlmPayload(fallbackRequest, { signal: options?.signal });
-                if (!response.ok) throw new Error(`API ${response.status}: ${await response.text()}`);
-                const parsed = parseProviderResponse(fallbackRequest.providerKind, await response.json());
-                if (parsed.content) await filter.push(parsed.content);
-                result = {
-                    content: parsed.content || "",
-                    reasoning: parsed.reasoning,
-                    openRouterReasoningDetails: parsed.openRouterReasoningDetails,
-                    toolCalls: parsed.toolCalls || [],
-                    rawResponse: "",
-                    providerKind: fallbackRequest.providerKind,
-                };
-            } catch (fallbackError) {
-                // 中转站/代理若对 tools 完全不兼容抛出 Failed to fetch，自动安全降级为文本协议
-                return await callQaAgentText(apiConfig, history, options);
-            }
+            const fallbackRequest = buildProviderRequest(apiConfig, null, messages, { tools, maxTokens: getQaMaxOutputTokens() ?? undefined });
+            const response = await fetchLlmPayload(fallbackRequest, { signal: options?.signal });
+            if (!response.ok) throw new Error(`API ${response.status}: ${await response.text()}`);
+            const parsed = parseProviderResponse(fallbackRequest.providerKind, await response.json());
+            if (parsed.content) await filter.push(parsed.content);
+            result = {
+                content: parsed.content || "",
+                reasoning: parsed.reasoning,
+                openRouterReasoningDetails: parsed.openRouterReasoningDetails,
+                toolCalls: parsed.toolCalls || [],
+                rawResponse: "",
+                providerKind: fallbackRequest.providerKind,
+            };
             // 流式失败转非流式成功的这一跳也要进工坊「调用记录」：主路径（sendLLMToolStreamRequest）
             // 由聊天引擎按 appId 分流落日志，这条 fallback 是本文件自己发的请求，不补就漏一条，
             // 而恰恰是刚出过流式故障、最需要排障记录的场景。

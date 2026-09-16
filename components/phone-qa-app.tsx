@@ -21,7 +21,6 @@ import type { QaCreatedContent } from "@/lib/qa-agent-tools";
 import {
   applyQaCommit,
   cancelQaCommit,
-  carryOverQaSession,
   clearQaToolHistory,
   createQaSession,
   deleteQaSession,
@@ -450,7 +449,6 @@ function QaSessionDrawer({
   onCreate: () => void;
   onOpenSettings: () => void;
   onRenameRequest: (id: string, title: string) => void;
-  onCarryOverRequest?: (id: string) => void;
 }) {
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
 
@@ -524,18 +522,6 @@ function QaSessionDrawer({
                   }}
                 >
                   <Pencil size={14} /> 重命名
-                </button>
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="qa-drawer-menu-btn"
-                  onClick={async (e) => {
-                    e.stopPropagation();
-                    setMenuOpenId(null);
-                    onCarryOverRequest?.(session.id);
-                  }}
-                >
-                  <Copy size={14} /> 打包记忆结转
                 </button>
                 <button
                   type="button"
@@ -871,52 +857,6 @@ export function PhoneQaApp({ onClose, onNotice }: PhoneQaAppProps) {
     refreshComposerMeta();
   }, [refreshComposerMeta]);
 
-  // ── 工坊宿主 Hook（供外部/大纲插件安全交互与事件通信） ──
-  useEffect(() => {
-    const runtime = {
-      version: "1.0.0",
-      scrollToBottom: (smooth = true) => {
-        const el = bodyRef.current;
-        if (!el) return;
-        stickToBottomRef.current = true;
-        if (smooth) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-        else el.scrollTop = el.scrollHeight;
-      },
-      scrollToElement: (targetEl: HTMLElement, smooth = true) => {
-        const container = bodyRef.current;
-        if (!container || !targetEl) return;
-        const header = document.querySelector(".qa-header");
-        const topOffset = header ? header.getBoundingClientRect().height + 14 : 88;
-        const cRect = container.getBoundingClientRect();
-        const tRect = targetEl.getBoundingClientRect();
-        const relativeTop = tRect.top - cRect.top;
-        const finalScrollTop = Math.max(0, container.scrollTop + relativeTop - topOffset);
-        container.scrollTo({ top: finalScrollTop, behavior: smooth ? "smooth" : "auto" });
-      },
-      carryOverSession: async () => {
-        if (!snapshot.activeSessionId) return;
-        const newId = await carryOverQaSession(snapshot.activeSessionId);
-        if (newId) onNotice?.("已打包记忆并结转到新会话！");
-      },
-      getActiveSessionId: () => snapshot.activeSessionId,
-      getContainer: () => bodyRef.current,
-    };
-    (window as any).__WORKSHOP_RUNTIME__ = runtime;
-    window.dispatchEvent(new CustomEvent("workshop:open", { detail: runtime }));
-    return () => {
-      window.dispatchEvent(new CustomEvent("workshop:close"));
-      delete (window as any).__WORKSHOP_RUNTIME__;
-    };
-  }, [snapshot.activeSessionId, onNotice]);
-
-  useEffect(() => {
-    window.dispatchEvent(
-      new CustomEvent("workshop:update", {
-        detail: { activeSessionId: snapshot.activeSessionId, messagesCount: messages.length },
-      }),
-    );
-  }, [snapshot.activeSessionId, messages]);
-
   // 清理原生 tool 调用历史（防报错）：与小卷同款——移除上下文里的工具记录与原生元数据
   const handleClearToolHistory = useCallback(() => {
     if (snapshot.isGenerating) {
@@ -1121,12 +1061,6 @@ export function PhoneQaApp({ onClose, onNotice }: PhoneQaAppProps) {
         onRenameRequest={(id, title) => {
           setRenameTarget({ id, title });
           setRenameTitle(title);
-        }}
-        onCarryOverRequest={async (id) => {
-          setDrawerOpen(false);
-          const newId = await carryOverQaSession(id);
-          if (newId) onNotice?.("已成功打包记忆并结转到新会话！");
-          else onNotice?.("结转失败，会话可能暂无有效记忆。");
         }}
       />
       <div className={`qa-stage ${drawerOpen ? "is-pushed" : ""}`}>

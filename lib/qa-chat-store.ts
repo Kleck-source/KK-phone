@@ -422,7 +422,7 @@ function resendTurnIds(session: QaSession, messageIndex: number): Set<string> {
     );
 }
 
-/** 返回无法安全重新生成的原因；小坊现已支持全局安全回滚与上下文重置 */
+/** 返回无法安全重新生成的原因；null 表示这是一段无工具副作用的用户对话。 */
 export function getQaEditAndResendBlockReason(sessionId: string, msgId: string): string | null {
     if (isGenerating || isCompacting) return "小坊正在执行或整理上下文，请等待当前任务完成。";
     const session = sessions.find((candidate) => candidate.id === sessionId);
@@ -431,6 +431,18 @@ export function getQaEditAndResendBlockReason(sessionId: string, msgId: string):
     if (messageIndex < 0) return "消息已不存在。";
     const message = session.messages[messageIndex];
     if (message.role !== "user") return "只有用户消息可以修改后重新发送。";
+    if (!userMessageTurnId(session, messageIndex)) return "这条消息缺少完整的回复轮次，无法安全重新发送。";
+
+    const turnIds = resendTurnIds(session, messageIndex);
+    const visibleSideEffects = session.messages.slice(messageIndex + 1).some((candidate) =>
+        candidate.role === "assistant" && (Boolean(candidate.tools?.length) || Boolean(candidate.pendingCommit)),
+    );
+    const contextSideEffects = sessionContext(session).some((entry) =>
+        Boolean(entry.turn && turnIds.has(entry.turn) && (entry.role === "tool" || entry.toolCalls?.length)),
+    );
+    if (visibleSideEffects || contextSideEffects) {
+        return "后续回复已经调用工具或产生实际操作，不能安全回滚；你仍可以保存文字修改。";
+    }
     return null;
 }
 
@@ -492,7 +504,7 @@ export function updateQaMessageContent(
     return { ok: true };
 }
 
-/** 修改用户消息并重新生成：精准回滚后续提交、截断多余历史、自动重算 Token 预算 */
+/** 修改用户消息并重新生成。只允许截断没有工具副作用的纯对话。 */
 export function editAndResendQaMessage(
     sessionId: string,
     msgId: string,
@@ -510,19 +522,9 @@ export function editAndResendQaMessage(
     if (!session || activeSessionId !== sessionId) return { ok: false, reason: "当前会话已经切换，请重新操作。" };
     const messageIndex = session.messages.findIndex((message) => message.id === msgId);
     if (messageIndex < 0) return { ok: false, reason: "消息已不存在。" };
-
-    // 扫描即将被丢弃的后续消息：若本轮曾落地过 GitHub 提交，自动发起精准回退，不污染之前正常的提交
-    const discardedMessages = session.messages.slice(messageIndex + 1);
-    for (const msg of discardedMessages) {
-        if (msg.pendingCommit?.status === "applied" && msg.pendingCommit.result?.commitSha) {
-            void revertQaCommit(msg.pendingCommit.result.commitSha).catch(() => {});
-        }
-    }
-
     const removedTurns = resendTurnIds(session, messageIndex);
     const prefixContext = session.context?.filter((entry) => !entry.turn || !removedTurns.has(entry.turn));
 
-    // 截断消息列表和上下文，Token 用量随之立即清空重置
     updateSession(sessionId, (current) => ({
         ...current,
         messages: current.messages.slice(0, messageIndex),
@@ -531,51 +533,6 @@ export function editAndResendQaMessage(
     }));
     void sendQaMessage(content, images, files);
     return { ok: true };
-}
-
-/** 一键打包当前会话记忆并结转到新会话：浓缩上下文，新窗口拥有 100% 全新 Token 预算 */
-export async function carryOverQaSession(sessionId: string): Promise<string | null> {
-    const session = sessions.find((s) => s.id === sessionId);
-    if (!session || isGenerating || isCompacting) return null;
-    const entries = sessionContext(session);
-    if (entries.length === 0) return null;
-
-    isCompacting = true;
-    emit();
-    try {
-        const summary = await compactQaContext(entries);
-        const newTitle = `${session.title || "原对话"} · 接续`;
-        const newSessionId = createQaSession();
-        updateSession(newSessionId, (s) => ({
-            ...s,
-            title: newTitle,
-            context: [
-                {
-                    role: "user",
-                    content: `[上一会话「${session.title}」的浓缩记忆档案]\n${summary || "已整理前置背景与技术决策。"}`,
-                },
-                {
-                    role: "assistant",
-                    content: `我已经承接并记住了上一会话「${session.title}」的所有关键进展与代码决策。新会话上下文已重置清空，我们随时可以继续！`,
-                },
-            ],
-            messages: [
-                {
-                    id: makeId(),
-                    role: "assistant",
-                    content: `✨ **已成功从「${session.title}」结转记忆！**\n\n已提炼前序对话的全部要点与关键上下文，新窗口拥有 **100% 完整崭新 Token 空间**。请告诉我接下来的任务～`,
-                    ts: Date.now(),
-                },
-            ],
-        }));
-        switchQaSession(newSessionId);
-        return newSessionId;
-    } catch {
-        return null;
-    } finally {
-        isCompacting = false;
-        emit();
-    }
 }
 
 function updateSession(sessionId: string, updater: (session: QaSession) => QaSession, options?: { persist?: boolean }) {
