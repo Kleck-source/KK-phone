@@ -97,7 +97,7 @@ export function sendBrowserNotification(
  * 发送一条测试通知（无视 document.hidden，只要用户授权即弹出）
  */
 export async function sendTestBrowserNotification(
-    title = "KK-Phone 通知测试",
+    title = "Float",
     options?: { body?: string; icon?: string },
 ): Promise<{ ok: boolean; message?: string }> {
     if (typeof window === "undefined" || !("Notification" in window)) {

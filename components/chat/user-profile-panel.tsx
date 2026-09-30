@@ -247,7 +247,7 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
         setNotifTesting(true);
         setNotifHint("正在发送测试弹窗通知...");
         try {
-            const res = await sendTestBrowserNotification("KK-Phone 通知测试", {
+            const res = await sendTestBrowserNotification("Float", {
                 body: "收到此横幅说明浏览器弹窗通知正常工作！",
             });
             if (res.ok) {
