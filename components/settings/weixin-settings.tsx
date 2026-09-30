@@ -195,6 +195,18 @@ export function WeixinSettings({ onOpenCloudServices }: { onOpenCloudServices?: 
         notifyChange();
     };
 
+    const handleUpdateDebounce = (id: string, debounceSeconds: number) => {
+        updateWeixinBot(id, { replyDebounceSeconds: debounceSeconds });
+        setBots(loadWeixinBots());
+        notifyChange();
+        setCloudSyncNotice({
+            ok: true,
+            text: debounceSeconds > 0
+                ? `已将连发等待设置为 ${debounceSeconds} 秒。请点击右侧 ☁️ 图标同步到云端。`
+                : "已设为即时回复（0秒）。请点击右侧 ☁️ 图标同步到云端。",
+        });
+    };
+
     const handleDelete = (id: string) => {
         removeWeixinBot(id);
         setBots(loadWeixinBots());
@@ -453,31 +465,61 @@ export function WeixinSettings({ onOpenCloudServices }: { onOpenCloudServices?: 
                     {bots.map(bot => {
                         const char = characters.find(c => c.id === bot.characterId);
                         const status = getWeixinBotStatus(bot.id);
+                        const debounceSec = bot.replyDebounceSeconds ?? 0;
                         return (
-                            <div key={bot.id} className="ui-group-card !flex-row !items-center">
-                                <div className="flex-1 flex flex-col gap-1">
-                                    <div className="flex items-center gap-[6px]">
-                                        {statusDot(bot.id)}
-                                        <span className="menu-label">{char?.name ?? bot.nickname ?? bot.characterId}</span>
+                            <div key={bot.id} className="ui-group-card !flex-col !items-stretch gap-2.5">
+                                <div className="flex items-center justify-between gap-3">
+                                    <div className="flex-1 flex flex-col gap-1">
+                                        <div className="flex items-center gap-[6px]">
+                                            {statusDot(bot.id)}
+                                            <span className="menu-label font-medium">{char?.name ?? bot.nickname ?? bot.characterId}</span>
+                                        </div>
+                                        <span className={`menu-desc !mt-0 ${status.status === "running" ? "text-green-500" : status.status === "error" ? "text-red-500" : ""}`}>
+                                            {statusLabel(bot.id)}
+                                        </span>
                                     </div>
-                                    <span className={`menu-desc !mt-0 ${status.status === "running" ? "text-green-500" : status.status === "error" ? "text-red-500" : ""}`}>
-                                        {statusLabel(bot.id)}
-                                    </span>
+                                    <div className="flex items-center gap-3 shrink-0">
+                                        <button
+                                            className="ui-link-btn"
+                                            data-variant="muted"
+                                            onClick={() => void handleSyncRuntime(bot.id)}
+                                            disabled={!cloudSupabaseReady || Boolean(cloudSyncingId)}
+                                            title="同步本地助手运行包（修改配置后点此同步）"
+                                        >
+                                            {cloudSyncingId === bot.id ? <Loader2 size={14} className="animate-spin" /> : <CloudUpload size={14} />}
+                                        </button>
+                                        <button className="ui-link-btn" data-variant="muted" onClick={() => setConfirmDeleteId(bot.id)}>
+                                            <Trash2 size={14} />
+                                        </button>
+                                        <Toggle checked={bot.enabled} onChange={v => handleToggle(bot.id, v)} />
+                                    </div>
                                 </div>
-                                <div className="flex items-center gap-3 shrink-0">
-                                    <button
-                                        className="ui-link-btn"
-                                        data-variant="muted"
-                                        onClick={() => void handleSyncRuntime(bot.id)}
-                                        disabled={!cloudSupabaseReady || Boolean(cloudSyncingId)}
-                                        title="同步本地助手运行包"
-                                    >
-                                        {cloudSyncingId === bot.id ? <Loader2 size={14} className="animate-spin" /> : <CloudUpload size={14} />}
-                                    </button>
-                                    <button className="ui-link-btn" data-variant="muted" onClick={() => setConfirmDeleteId(bot.id)}>
-                                        <Trash2 size={14} />
-                                    </button>
-                                    <Toggle checked={bot.enabled} onChange={v => handleToggle(bot.id, v)} />
+
+                                <div className="flex items-center justify-between pt-2.5 border-t border-black/5 dark:border-white/5">
+                                    <div className="flex flex-col flex-1 mr-3">
+                                        <span className="menu-label !text-[12.5px]">连发等待（防抖缓冲）</span>
+                                        <span className="menu-desc !mt-0 !text-[11px]">
+                                            {debounceSec > 0
+                                                ? `发消息后等 ${debounceSec} 秒无新输入再合并回复`
+                                                : "0 秒为即时回复（不等待连发）"}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                        <input
+                                            type="number"
+                                            min={0}
+                                            max={300}
+                                            value={debounceSec === 0 ? "" : debounceSec}
+                                            placeholder="0"
+                                            onChange={e => {
+                                                const raw = e.target.value;
+                                                const val = raw === "" ? 0 : Math.max(0, Math.min(300, parseInt(raw, 10) || 0));
+                                                handleUpdateDebounce(bot.id, val);
+                                            }}
+                                            className="h-8 w-16 rounded-xl border border-black/10 dark:border-white/10 bg-black/[0.03] dark:bg-white/[0.05] px-2 text-center text-xs font-semibold text-[var(--c-text)] outline-none focus:border-black/30 dark:focus:border-white/30"
+                                        />
+                                        <span className="ts-12 text-[var(--c-text-muted)]">秒</span>
+                                    </div>
                                 </div>
                             </div>
                         );

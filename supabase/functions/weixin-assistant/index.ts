@@ -327,6 +327,25 @@ async function autoReplyPendingMessages(env, runtime, options = {}) {
   }
 
   const latest = pending[pending.length - 1].message;
+
+  // 连发等待防抖：若配置了等待秒数，且最后一条消息距离现在不足该秒数，本次轮询暂不回复
+  const debounceSeconds = Math.max(0, Number(runtime.bot?.replyDebounceSeconds) || 0);
+  if (debounceSeconds > 0 && !options?.force) {
+    const latestTime = Date.parse(messageTime(latest) || latest.receivedAt || "");
+    if (Number.isFinite(latestTime)) {
+      const elapsedMs = Date.now() - latestTime;
+      const debounceMs = debounceSeconds * 1000;
+      if (elapsedMs < debounceMs) {
+        return {
+          status: "debouncing",
+          pending: pending.length,
+          sent: 0,
+          remainingSeconds: Math.ceil((debounceMs - elapsedMs) / 1000),
+        };
+      }
+    }
+  }
+
   const stopTyping = await startIlinkTyping(runtime.bot?.botToken, latest.raw);
   try {
     const generation = await generateReply(env, runtime, cloudMessages, pending.map(item => item.message));

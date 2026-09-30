@@ -11,6 +11,7 @@ export type WeixinBotConfig = {
     enabled: boolean;     // 是否启用
     nickname?: string;    // 显示名（默认用角色名）
     addedAt: string;      // ISO 日期
+    replyDebounceSeconds?: number; // 连发防抖等待时长（秒，0=立即回复）
 };
 
 export function loadWeixinBots(): WeixinBotConfig[] {
