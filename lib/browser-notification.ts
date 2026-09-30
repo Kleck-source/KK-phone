@@ -92,3 +92,51 @@ export function sendBrowserNotification(
     }
     constructNotification(title, payload);
 }
+
+/**
+ * 发送一条测试通知（无视 document.hidden，只要用户授权即弹出）
+ */
+export async function sendTestBrowserNotification(
+    title = "KK-Phone 通知测试",
+    options?: { body?: string; icon?: string },
+): Promise<{ ok: boolean; message?: string }> {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+        return { ok: false, message: "当前浏览器不支持 Notification API" };
+    }
+
+    if (Notification.permission !== "granted") {
+        const granted = await requestNotificationPermission();
+        if (!granted || Notification.permission !== "granted") {
+            return {
+                ok: false,
+                message: `通知权限未开启（当前状态：${Notification.permission}）。请在浏览器地址栏或系统设置中允许通知。`,
+            };
+        }
+    }
+
+    const payload: NotificationOptions = {
+        body: options?.body || "这是一条测试通知。收到此横幅说明浏览器弹窗通知正常可用！",
+        icon: options?.icon || "/icon-192.png",
+        tag: `ai-phone-test-${Date.now()}-${_notifCounter++}`,
+    };
+
+    if ("serviceWorker" in navigator) {
+        try {
+            const timeout = new Promise<null>((resolve) => window.setTimeout(() => resolve(null), 800));
+            const registration = await Promise.race([navigator.serviceWorker.ready, timeout]);
+            if (registration && typeof registration.showNotification === "function") {
+                await registration.showNotification(title, payload);
+                return { ok: true };
+            }
+        } catch {
+            // fall back to Notification constructor
+        }
+    }
+
+    try {
+        constructNotification(title, payload);
+        return { ok: true };
+    } catch (e) {
+        return { ok: false, message: e instanceof Error ? e.message : String(e) };
+    }
+}

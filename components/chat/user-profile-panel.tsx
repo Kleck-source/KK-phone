@@ -24,7 +24,7 @@ import { loadChatContacts } from "@/lib/chat-storage";
 import { loadCharacters } from "@/lib/character-storage";
 import { triggerImmediatePost } from "@/lib/moments-engine";
 import type { Character } from "@/lib/character-types";
-import { requestNotificationPermission } from "@/lib/browser-notification";
+import { requestNotificationPermission, sendTestBrowserNotification } from "@/lib/browser-notification";
 import { disableOfflinePush, enableOfflinePush, getOfflinePushState, isShellEnvironment, loadPushQuietHours, savePushQuietHours, sendTestOfflinePush, type OfflinePushState } from "@/lib/push-client";
 import { isPersonalPushCloudActive, setPersonalPushCloudScheduled } from "@/lib/personal-push-cloud";
 import { loadPushCloudScheduled, savePushCloudScheduled } from "@/lib/cloud-deploy-status";
@@ -160,6 +160,7 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
     const [notifEnabled, setNotifEnabled] = useState(false);
     const [notifHint, setNotifHint] = useState<string | null>(null);
     const [notifChecking, setNotifChecking] = useState(false);
+    const [notifTesting, setNotifTesting] = useState(false);
     const [showPushSettings, setShowPushSettings] = useState(false);
     const [enterToSendEnabled, setEnterToSendEnabled] = useState(false);
     const [callVibrationEnabled, setCallVibrationEnabled] = useState(true);
@@ -238,6 +239,26 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
             }
         } finally {
             setNotifChecking(false);
+        }
+    };
+
+    const handleTestNotification = async () => {
+        if (notifTesting) return;
+        setNotifTesting(true);
+        setNotifHint("正在发送测试弹窗通知...");
+        try {
+            const res = await sendTestBrowserNotification("KK-Phone 通知测试", {
+                body: "收到此横幅说明浏览器弹窗通知正常工作！",
+            });
+            if (res.ok) {
+                setNotifHint("已发送测试通知，请查看系统/浏览器横幅提醒。");
+            } else {
+                setNotifHint(res.message || "测试通知发送失败。");
+            }
+        } catch (err) {
+            setNotifHint(err instanceof Error ? err.message : "测试通知发送异常。");
+        } finally {
+            setNotifTesting(false);
         }
     };
 
@@ -453,7 +474,19 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                                 <span className="ts-14 font-semibold text-[var(--c-text-title)]">浏览器后台通知</span>
                                 <span className="ts-11 text-[var(--c-text)] opacity-70">{notifHint || "允许网页在后台时弹出新消息横幅提醒"}</span>
                             </div>
-                            <Toggle checked={notifEnabled} disabled={notifChecking} onChange={handleNotificationToggle} />
+                            <div className="flex items-center gap-2">
+                                {notifEnabled && (
+                                    <button
+                                        type="button"
+                                        className="h-7 px-2.5 rounded-full text-xs font-semibold bg-black/5 dark:bg-white/10 text-[var(--c-text-title)] hover:bg-black/10 dark:hover:bg-white/20 active:scale-95 transition-all disabled:opacity-50"
+                                        disabled={notifTesting || notifChecking}
+                                        onClick={handleTestNotification}
+                                    >
+                                        {notifTesting ? "测试中" : "测试"}
+                                    </button>
+                                )}
+                                <Toggle checked={notifEnabled} disabled={notifChecking} onChange={handleNotificationToggle} />
+                            </div>
                         </div>
                     </div>
 
