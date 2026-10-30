@@ -16,7 +16,7 @@ export async function POST(request: Request) {
     // 留出杀后台的时间窗：请求收到后等 6 秒再发送（客户端此时可能已经被杀，无妨）。
     await new Promise(resolve => setTimeout(resolve, 6000));
     const result = await sendPushToUser(account.id, {
-      title: "小手机",
+      title: "Float",
       body: "离线推送已连通。关掉后台也能收到这样的通知。",
       tag: "push-test",
       url: new URL("/", request.url).toString(),

@@ -69,7 +69,7 @@ function toServerRule(rule: BridgeRule): (ServerBridgeRule & { actions: BridgeRu
     let chatMeta: ServerBridgeRule["chat"];
     if (chat?.characterId) {
         const session = ensureSessionFor(chat.characterId);
-        const characterName = loadCharacters().find(c => c.id === chat.characterId)?.name ?? "小手机";
+        const characterName = loadCharacters().find(c => c.id === chat.characterId)?.name ?? "Float";
         chatMeta = {
             characterId: chat.characterId,
             sessionId: session.id,
