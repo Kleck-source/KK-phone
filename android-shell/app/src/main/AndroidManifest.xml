@@ -24,10 +24,7 @@
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.microphone" android:required="false" />
 
-    <!-- Health Connect：Android 13 及以下要单独装那个 App，这里声明它是为了
-         在没装时能正确地「探测不到」而不是崩掉。Android 14+ 它已并入系统。 -->
     <queries>
-        <package android:name="com.google.android.apps.healthdata" />
         <!-- 闹钟与倒计时：Android 11+ 有包可见性限制，不在 queries 里声明这两个
              意图，就「看不到」系统时钟 App，startActivity 会抛
              ActivityNotFoundException，被误报成「这台设备没有可用的时钟应用」。 -->
@@ -125,12 +122,6 @@
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
-            </intent-filter>
-            <!-- Health Connect 的权限说明页入口。Android 14+ 会在这里链一个
-                 「为什么需要这些权限」的说明，缺了它系统会拒绝授权请求。 -->
-            <intent-filter>
-                <action android:name="android.intent.action.VIEW_PERMISSION_USAGE" />
-                <category android:name="android.intent.category.HEALTH_PERMISSIONS" />
             </intent-filter>
 
             <!-- 深链：外部 App（如桌宠）用 floatshell://open?url=<站内地址> 唤起本壳并直达指定页面。

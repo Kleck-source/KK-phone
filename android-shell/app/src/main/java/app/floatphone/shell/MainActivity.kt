@@ -38,7 +38,6 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.health.connect.client.PermissionController
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
@@ -96,19 +95,6 @@ class MainActivity : AppCompatActivity() {
 
     /** 健康桥：让角色知道用户昨晚睡了多久（只读睡眠、只回时长，边界见 HealthBridge）。 */
     private val healthBridge by lazy { HealthBridge(this) }
-
-    /**
-     * 睡眠读取权限的申请结果回调。
-     *
-     * Health Connect 的授权走它自己的 ActivityResultContract，不是系统的
-     * requestPermissions；用户勾了哪几项由返回的集合告诉我们。
-     * 结果记完就够——真正的读取由网页调 refreshHealth 触发，壳不替网页做判断。
-     */
-    private val healthPermissionLauncher = registerForActivityResult(
-        PermissionController.createRequestPermissionResultContract()
-    ) { grantedPermissions ->
-        healthPermissionGranted = grantedPermissions.contains(HealthBridge.PERM_SLEEP)
-    }
 
     /** 睡眠读取权限的最近一次申请结果（网页靠轮询 getHealthCapabilities 确认）。 */
     @Volatile
@@ -806,12 +792,7 @@ class MainActivity : AppCompatActivity() {
          */
         @JavascriptInterface
         fun requestHealthPermission(): Boolean {
-            if (healthBridge.hasSleepPermission()) return true
-            if (!healthBridge.isAvailable()) return false
-            return runCatching {
-                healthPermissionLauncher.launch(setOf(HealthBridge.PERM_SLEEP))
-                false
-            }.getOrDefault(false)
+            return false
         }
 
         /** 读缓存的最近一觉（JSON；读不到返回空对象）。 */
