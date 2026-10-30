@@ -73,6 +73,8 @@ export function peekAccountPushSubscribed(): boolean | null {
 /** 当前账号（任意设备）是否有推送订阅。结果缓存 24 小时。 */
 export async function hasAccountPushSubscription(): Promise<boolean> {
     if (typeof window === "undefined") return false;
+    // 安卓壳（FloatShell）自带 PushService 原生长连接服务，直接视为已开通离线通道，不拦截主动预约
+    if (isShellEnvironment()) return true;
     try {
         const cached = kvGet(PUSH_GATE_KV);
         if (cached) {
@@ -328,9 +330,11 @@ export async function disableOfflinePush(): Promise<{ ok: boolean; error?: strin
 }
 
 export async function sendTestOfflinePush(): Promise<{ ok: boolean; error?: string }> {
-    const response = await (isPersonalPushCloudActive()
-        ? personalPushFetch("test", { method: "POST" })
-        : fetch("/api/push/test", { method: "POST", credentials: "include"}))
+    // 安卓壳环境下自带 PushService 监听，直接走主站 /api/push/test 触发 6 秒后 Realtime 广播
+    const useSitePush = isShellEnvironment() || !isPersonalPushCloudActive();
+    const response = await (useSitePush
+        ? fetch("/api/push/test", { method: "POST", credentials: "include" })
+        : personalPushFetch("test", { method: "POST" }))
         .catch(() => null);
     if (!response) return { ok: false, error: "网络异常。" };
     const data = await response.json().catch(() => ({})) as { ok?: boolean; error?: string };

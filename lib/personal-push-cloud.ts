@@ -37,27 +37,12 @@ function projectRefFromUrl(value: string): string {
 export function loadPersonalPushCloudState(): PersonalPushCloudState | null {
   if (typeof window === "undefined") return null;
   try {
+    // 安卓壳（FloatShell）自带 PushService 原生长连接通道，走主站 Realtime 广播，不劫持为个人云推送
+    const isShell = typeof navigator !== "undefined" && navigator.userAgent.includes("FloatShell/");
+    if (isShell) return null;
+
     const raw = kvGet(PERSONAL_PUSH_STATE_KEY);
-    if (!raw) {
-      const backup = loadCloudBackupConfig();
-      if (isCloudBackupConfigured(backup)) {
-        const url = normalizeBackupUrl(backup.url);
-        const projectRef = projectRefFromUrl(url);
-        if (url && projectRef) {
-          const autoState: PersonalPushCloudState = {
-            enabled: true,
-            projectRef,
-            url,
-            deployedAt: new Date().toISOString(),
-            healthStatus: "ready",
-            schemaVersion: 3,
-          };
-          kvSet(PERSONAL_PUSH_STATE_KEY, JSON.stringify(autoState));
-          return autoState;
-        }
-      }
-      return null;
-    }
+    if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<PersonalPushCloudState>;
     const url = normalizeBackupUrl(typeof parsed.url === "string" ? parsed.url : "");
     const projectRef = typeof parsed.projectRef === "string" ? parsed.projectRef : "";

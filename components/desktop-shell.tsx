@@ -2534,7 +2534,7 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:#121110;color:rgb
 
       const isCurrentMainChat = activeApp === "chat" && activeChatSession?.id === detail.sessionId;
       const isCurrentMiniChat = showMiniChat && miniSessionRef.current?.id === detail.sessionId;
-      if (isCurrentMainChat || isCurrentMiniChat) return;
+      const isPageHidden = typeof document !== "undefined" && document.hidden;
 
       const sessions = loadChatSessions();
       const session = sessions.find(s => s.id === detail.sessionId);
@@ -2548,6 +2548,19 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:#121110;color:rgb
         ? detailSenderName
         : (isGroup ? session.groupName || "群聊" : session.alias || char?.name || "新消息");
 
+      // 1. 如果切到了后台 / 锁屏 / 切去其他应用（isPageHidden 为 true）：
+      // 必须调用原生系统通知 sendShellNotification，弹出 Heads-up 横幅通知给用户
+      if (isPageHidden) {
+        sendShellNotification(title, detail.body.trim(), detail.avatar ?? char?.avatar ?? null, detail.sessionId);
+        return;
+      }
+
+      // 2. 如果用户在前台，且正看着当前聊天窗口：
+      // 直接在聊天界面里看实时气泡，不弹任何横幅干扰
+      if (isCurrentMainChat || isCurrentMiniChat) return;
+
+      // 3. 用户在前台但停留在 Float 的其他页面（如桌面、主屏、其他会话）：
+      // 只使用 Float 自带的站内卡片通知，绝不调用系统原生通知弹窗
       if (chatMessageNoticeTimerRef.current !== null) {
         window.clearTimeout(chatMessageNoticeTimerRef.current);
       }
@@ -2560,7 +2573,6 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:#121110;color:rgb
         avatar: detail.avatar ?? char?.avatar ?? null,
         isGroup,
       });
-      sendShellNotification(title, detail.body.trim(), detail.avatar ?? char?.avatar ?? null, detail.sessionId);
       chatMessageNoticeTimerRef.current = window.setTimeout(() => {
         setChatMessageNotice(null);
         chatMessageNoticeTimerRef.current = null;
