@@ -133,6 +133,7 @@ import { generateChatCompletion, flattenCompletionResult } from "@/lib/chat-engi
 import { parseAIResponse } from "@/lib/rich-message-parser";
 import { requestBackgroundChatReply, scheduleFollowUp } from "@/lib/follow-up-service";
 import { CHAT_MESSAGE_NOTICE_EVENT, CHAT_OPEN_SESSION_EVENT, type ChatMessageNoticeDetail } from "@/lib/chat-notification-events";
+import { sendShellNotification } from "@/lib/shell-notify";
 import { startIncomingCallVibration } from "@/lib/call-vibration";
 import { setMascotContext } from "@/lib/mascot-context";
 import { DESKTOP_WIDGETS_CHANGED_EVENT } from "@/lib/mascot-events";
@@ -2559,6 +2560,7 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:#121110;color:rgb
         avatar: detail.avatar ?? char?.avatar ?? null,
         isGroup,
       });
+      sendShellNotification(title, detail.body.trim(), detail.avatar ?? char?.avatar ?? null, detail.sessionId);
       chatMessageNoticeTimerRef.current = window.setTimeout(() => {
         setChatMessageNotice(null);
         chatMessageNoticeTimerRef.current = null;
