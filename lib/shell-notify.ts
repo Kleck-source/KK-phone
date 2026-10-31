@@ -8,7 +8,7 @@ type ShellNotificationBridge = {
     notify?: (title: string, body: string, avatarUrl: string, sessionId?: string) => boolean;
 };
 
-const MAX_AVATAR_URL_CHARS = 400_000;
+const MAX_AVATAR_URL_CHARS = 2_000_000;
 
 function getBridge(): ShellNotificationBridge | null {
     if (typeof window === "undefined") return null;
@@ -23,6 +23,18 @@ export function canSendShellNotification(): boolean {
 function normalizeAvatar(avatar?: string | null): string {
     const value = typeof avatar === "string" ? avatar.trim() : "";
     if (!value || value.length > MAX_AVATAR_URL_CHARS) return "";
+    // 相对路径补全为完整 URL，方便 Android 原生壳 OkHttp 下载作为大图标
+    if (value.startsWith("/") && typeof window !== "undefined" && window.location?.origin) {
+        try {
+            return new URL(value, window.location.origin).toString();
+        } catch {
+            return "";
+        }
+    }
+    // SVG 无法被 Android 原生 BitmapFactory 直接解码为 Bitmap，若为 svg 则不作为大图标传给原生
+    if (value.startsWith("data:image/svg+xml")) {
+        return "";
+    }
     if (value.startsWith("data:image/") || value.startsWith("http://") || value.startsWith("https://")) {
         return value;
     }

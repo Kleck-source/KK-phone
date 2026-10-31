@@ -1278,9 +1278,14 @@ class MainActivity : AppCompatActivity() {
      * 绝不能因为一张图让通知迟到或丢失。
      */
     private fun loadAvatarBitmap(avatarUrl: String): Bitmap? {
-        val value = avatarUrl.trim()
-        if (value.isEmpty()) return null
+        val raw = avatarUrl.trim()
+        if (raw.isEmpty()) return null
         return runCatching {
+            val value = if (raw.startsWith("/")) {
+                MainActivity.SITE_URL.trimEnd('/') + raw
+            } else {
+                raw
+            }
             if (value.startsWith("data:image/")) decodeDataUrlBitmap(value) else fetchRemoteAvatar(value)
         }.getOrNull()
     }

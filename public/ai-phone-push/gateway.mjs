@@ -1022,7 +1022,7 @@ $CRON$)`);
       const subject = requestedOrigin.startsWith("https://") ? requestedOrigin : "mailto:push@ai-phone.local";
       const payload = JSON.stringify({
         type: "chat_outbox_test",
-        title: "小手机",
+        title: "Float",
         body: "个人 Supabase 离线推送已连通。",
         tag: `personal-push-test-${Date.now()}`,
         url: "/",

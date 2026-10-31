@@ -1135,6 +1135,8 @@ Deno.serve(async (req: Request) => {
                   title: deliverAsCall ? `📞 ${title}` : title,
                   body: partBody,
                   url: targetUrl,
+                  sessionId: typeof payload.merge?.sessionId === "string" ? payload.merge.sessionId : "",
+                  avatar: typeof payload.notify?.avatar === "string" ? payload.notify.avatar : (typeof payload.merge?.avatar === "string" ? payload.merge.avatar : ""),
                   // 老壳不认识这些字段 → 照常显示普通通知，自然向下兼容
                   ...(deliverAsCall ? { kind: "call", characterName: title, sessionId: callSessionId, callTs: Date.now() } : {}),
                 },

@@ -30,6 +30,8 @@ export type PushMessage = {
   type?: "shortcut_command";
   commandId?: string;
   ttl?: number;
+  icon?: string;
+  sessionId?: string;
 };
 
 export type PushSendResult = {
@@ -45,7 +47,7 @@ const SHELL_ENDPOINT_PREFIX = "shell:";
 /** 向安卓壳的个人频道 shellpush:<userId> 广播一条通知（尽力而为）。 */
 export async function broadcastShellNotify(
   userId: string,
-  message: { title: string; body: string; url?: string },
+  message: { title: string; body: string; url?: string; avatar?: string; sessionId?: string },
 ): Promise<boolean> {
   const config = getSupabaseServerConfig();
   if (!config) return false;
@@ -61,7 +63,13 @@ export async function broadcastShellNotify(
         messages: [{
           topic: `shellpush:${userId}`,
           event: "notify",
-          payload: { title: message.title, body: message.body, url: message.url || "/" },
+          payload: {
+            title: message.title,
+            body: message.body,
+            url: message.url || "/",
+            avatar: message.avatar || "",
+            sessionId: message.sessionId || "",
+          },
         }],
       }),
       cache: "no-store",
@@ -198,7 +206,13 @@ export async function sendPushToUser(
   const shellSubs = subs.data.filter(sub => sub.endpoint.startsWith(SHELL_ENDPOINT_PREFIX));
   const webSubs = subs.data.filter(sub => !sub.endpoint.startsWith(SHELL_ENDPOINT_PREFIX));
   if (shellSubs.length > 0) {
-    const ok = await broadcastShellNotify(userId, { title: message.title, body: message.body, url: navigate });
+    const ok = await broadcastShellNotify(userId, {
+      title: message.title,
+      body: message.body,
+      url: navigate,
+      avatar: message.icon || "",
+      sessionId: message.sessionId || "",
+    });
     if (ok) result.sent += shellSubs.length;
     else result.errors.push("shell broadcast failed");
   }

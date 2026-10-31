@@ -131,7 +131,7 @@ import { ensureGlobalBindingDefaults, resolveUserIdentity } from "@/lib/settings
 import { loadCharacters } from "@/lib/character-storage";
 import { generateChatCompletion, flattenCompletionResult } from "@/lib/chat-engine";
 import { parseAIResponse } from "@/lib/rich-message-parser";
-import { requestBackgroundChatReply, scheduleFollowUp } from "@/lib/follow-up-service";
+import { cancelFollowUp, requestBackgroundChatReply, scheduleFollowUp } from "@/lib/follow-up-service";
 import { CHAT_MESSAGE_NOTICE_EVENT, CHAT_OPEN_SESSION_EVENT, type ChatMessageNoticeDetail } from "@/lib/chat-notification-events";
 import { sendShellNotification } from "@/lib/shell-notify";
 import { startIncomingCallVibration } from "@/lib/call-vibration";
@@ -2479,6 +2479,67 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:#121110;color:rgb
     window.addEventListener(CHAT_REQUEST_REPLY_EVENT, handler);
     return () => window.removeEventListener(CHAT_REQUEST_REPLY_EVENT, handler);
   }, []);
+
+  // 消费原生通知栏快捷回复（RemoteInput）：
+  // 当用户在通知栏直接输入文字并点击发送时，Kotlin 端拦截并入队，同时向 window 派发 'shell-call-overlay'（action: "userReply"）。
+  // 网页端从 window.AndroidShell.consumePendingReplies() 取出回复内容，作为 user 消息入库并触发后台生成角色回复。
+  const processShellPendingReplies = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const bridge = (window as unknown as { AndroidShell?: { consumePendingReplies?: () => string } }).AndroidShell;
+    if (!bridge || typeof bridge.consumePendingReplies !== "function") return;
+    try {
+      const raw = bridge.consumePendingReplies();
+      if (!raw || raw === "[]") return;
+      const replies = JSON.parse(raw) as Array<{ id?: string; sessionId?: string; text?: string; at?: number }>;
+      if (!Array.isArray(replies) || replies.length === 0) return;
+
+      replies.forEach(item => {
+        const sid = item.sessionId?.trim();
+        const text = item.text?.trim();
+        if (!sid || !text) return;
+        const createdAt = item.at ? new Date(item.at).toISOString() : new Date().toISOString();
+        pushChatMessage({
+          sessionId: sid,
+          role: "user",
+          content: text,
+          createdAt,
+          status: "sent",
+        });
+        cancelFollowUp(sid);
+        window.dispatchEvent(new CustomEvent(CHAT_MESSAGE_PUSHED_EVENT, { detail: { sessionId: sid } }));
+        void requestBackgroundChatReply(sid);
+      });
+    } catch (e) {
+      console.warn("[ShellReply] Failed to consume pending replies:", e);
+    }
+  }, []);
+
+  useEffect(() => {
+    // 1. 挂载时立即尝试消费一次（覆盖冷启动或页面唤醒场景）
+    processShellPendingReplies();
+
+    // 2. 页面可见性变化（从后台切回前台时）检查一次
+    const onVisibilityChange = () => {
+      if (typeof document !== "undefined" && !document.hidden) {
+        processShellPendingReplies();
+      }
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    // 3. 监听原生壳发出的 overlay 事件（action 为 "userReply" 时即时消费）
+    const onOverlayEvent = (e: Event) => {
+      const detail = (e as CustomEvent<{ action?: string; sessionId?: string }>).detail;
+      if (detail?.action === "userReply") {
+        processShellPendingReplies();
+      }
+    };
+    window.addEventListener("shell-call-overlay", onOverlayEvent);
+
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+      window.removeEventListener("shell-call-overlay", onOverlayEvent);
+    };
+  }, [processShellPendingReplies]);
 
   // Swipe up to dismiss the message notice; tap still opens the chat. Auto-dismiss
   // pauses while the finger is down and resumes if the swipe doesn't pass threshold.

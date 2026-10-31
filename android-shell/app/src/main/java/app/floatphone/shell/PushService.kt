@@ -71,6 +71,44 @@ class PushService : Service() {
     private var msgSeq = 2
     private var notifId = 100
     private var shellSubRegistered = false
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
+    private val loopLock = Object()
+    private var resetBackoff = false
+
+    private val wakeReceiver = object : android.content.BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            when (intent?.action) {
+                Intent.ACTION_SCREEN_ON, Intent.ACTION_USER_PRESENT -> {
+                    // 屏幕点亮或解锁，立即唤醒重连循环，重置退避时间
+                    resetBackoffAndWake()
+                }
+                android.net.ConnectivityManager.CONNECTIVITY_ACTION -> {
+                    resetBackoffAndWake()
+                }
+            }
+        }
+    }
+
+    private fun resetBackoffAndWake() {
+        synchronized(loopLock) {
+            resetBackoff = true
+            loopLock.notifyAll()
+        }
+    }
+
+    private fun sleepInterruptible(sec: Long) {
+        synchronized(loopLock) {
+            val end = System.currentTimeMillis() + sec * 1000
+            while (!stopped && !resetBackoff) {
+                val remain = end - System.currentTimeMillis()
+                if (remain <= 0) break
+                runCatching { loopLock.wait(remain) }
+            }
+            if (resetBackoff) {
+                resetBackoff = false
+            }
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -79,6 +117,22 @@ class PushService : Service() {
         running = true
         createChannels()
         startForeground(NOTIF_FG_ID, buildKeepAliveNotification("等待连接…"))
+
+        runCatching {
+            val pm = getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
+            wakeLock = pm?.newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "Float:PushServiceWakeLock")
+            wakeLock?.setReferenceCounted(false)
+            wakeLock?.acquire(30 * 60 * 1000L)
+        }
+
+        val filter = android.content.IntentFilter().apply {
+            addAction(Intent.ACTION_SCREEN_ON)
+            addAction(Intent.ACTION_USER_PRESENT)
+            @Suppress("DEPRECATION")
+            addAction(android.net.ConnectivityManager.CONNECTIVITY_ACTION)
+        }
+        registerReceiver(wakeReceiver, filter)
+
         thread(name = "shell-push-loop") { connectionLoop() }
     }
 
@@ -88,6 +142,11 @@ class PushService : Service() {
         stopped = true
         running = false
         socket?.cancel()
+        runCatching { unregisterReceiver(wakeReceiver) }
+        runCatching {
+            if (wakeLock?.isHeld == true) wakeLock?.release()
+        }
+        synchronized(loopLock) { loopLock.notifyAll() }
         super.onDestroy()
     }
 
@@ -98,15 +157,20 @@ class PushService : Service() {
             val config = fetchConfig()
             if (config == null) {
                 updateKeepAlive("未登录或站点不可达，稍后重试")
-                sleepSec(60); continue
+                sleepInterruptible(60); continue
             }
             updateKeepAlive("已连接，等待角色消息")
+            backoffSec = 5L
             val closedNormally = runSocket(config)
             if (stopped) break
             updateKeepAlive("连接断开，重连中…")
-            sleepSec(if (closedNormally) 3 else backoffSec)
-            backoffSec = (backoffSec * 2).coerceAtMost(120)
-            if (closedNormally) backoffSec = 5
+            sleepInterruptible(if (closedNormally) 3 else backoffSec)
+            if (resetBackoff) {
+                backoffSec = 2
+            } else {
+                backoffSec = (backoffSec * 2).coerceAtMost(120)
+                if (closedNormally) backoffSec = 5
+            }
         }
     }
 
@@ -431,10 +495,14 @@ class PushService : Service() {
      * 解析失败或超时一律返回 null，调用方退回应用图标。
      */
     private fun loadAvatarBitmap(avatarUrl: String?): Bitmap? {
-        val value = avatarUrl?.trim().orEmpty()
-        if (value.isEmpty()) return null
-        // 老壳不认识 avatar 字段时这里是空串，自然跳过；异常也绝不能影响通知。
+        val raw = avatarUrl?.trim().orEmpty()
+        if (raw.isEmpty()) return null
         return runCatching {
+            val value = if (raw.startsWith("/")) {
+                MainActivity.SITE_URL.trimEnd('/') + raw
+            } else {
+                raw
+            }
             if (value.startsWith("data:image/")) decodeDataUrlBitmap(value) else fetchRemoteAvatar(value)
         }.getOrNull()
     }

@@ -302,7 +302,11 @@ export async function armFollowUpBailout(
                         body: request.body,
                         providerKind: request.providerKind,
                     },
-                    notify: { title: character.name, url: "/" },
+                    notify: {
+                        title: character.name,
+                        url: "/",
+                        ...(character.avatar ? { avatar: character.avatar } : {}),
+                    },
                     ...(shortcutContinuation ? { shortcutContinuation } : {}),
                     merge: {
                         sessionId,
@@ -310,6 +314,7 @@ export async function armFollowUpBailout(
                         prevCount,
                         regexes,
                         characterName: character.name,
+                        ...(character.avatar ? { avatar: character.avatar } : {}),
                         userName: userIdentity?.name ?? "用户",
                         appId: "chat",
                         appTags: ["chat", "text", "followup"],
@@ -330,6 +335,7 @@ async function postBailoutJob(input: {
     executeAtMs: number;
     request: Pick<LlmRequestPayload, "url" | "headers" | "body" | "providerKind">;
     notifyTitle: string;
+    notifyAvatar?: string;
     merge: Record<string, unknown>;
     weixinBotId?: string;
     shortcutContinuation?: OfflineShortcutContinuation | null;
@@ -348,10 +354,17 @@ async function postBailoutJob(input: {
                     body: input.request.body,
                     providerKind: input.request.providerKind,
                 },
-                notify: { title: input.notifyTitle, url: "/" },
+                notify: {
+                    title: input.notifyTitle,
+                    url: "/",
+                    ...(input.notifyAvatar ? { avatar: input.notifyAvatar } : {}),
+                },
                 ...(input.weixinBotId ? { weixin: { botId: input.weixinBotId } } : {}),
                 ...(input.shortcutContinuation ? { shortcutContinuation: input.shortcutContinuation } : {}),
-                merge: input.merge,
+                merge: {
+                    ...input.merge,
+                    ...(input.notifyAvatar ? { avatar: input.notifyAvatar } : {}),
+                },
             },
         }),
     }).catch(() => null);
@@ -450,6 +463,7 @@ export async function armIdleReconnectBailout(rule: IdleReconnectRule): Promise<
             executeAtMs: fireAt + 15_000,
             request,
             notifyTitle: character.name,
+            notifyAvatar: character.avatar,
             weixinBotId,
             shortcutContinuation,
             merge: {
@@ -511,6 +525,7 @@ export async function armTimedWakeBailout(schedule: TimedWakeSchedule): Promise<
             executeAtMs: schedule.fireAt + 15_000,
             request,
             notifyTitle: character.name,
+            notifyAvatar: character.avatar,
             weixinBotId,
             shortcutContinuation,
             merge: {
