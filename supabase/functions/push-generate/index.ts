@@ -576,7 +576,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const subsResponse = await rest(`push_subscriptions?user_id=eq.${encodeURIComponent(job.user_id)}&select=endpoint,p256dh,auth`);
+    const subsResponse = await rest(`push_subscriptions?user_id=in.(${encodeURIComponent(job.user_id)},owner,local_user)&select=endpoint,p256dh,auth`);
     const subs = subsResponse.ok ? await subsResponse.json() as SubscriptionRow[] : [];
     if (subs.length === 0 && payload.weixin?.force !== true) {
       await finish("done", "no_subscription");
@@ -1124,24 +1124,24 @@ Deno.serve(async (req: Request) => {
       }
       if (hasShellSub) {
         try {
+          const shellPayload = {
+            title: deliverAsCall ? `📞 ${title}` : title,
+            body: partBody,
+            url: targetUrl,
+            sessionId: typeof payload.merge?.sessionId === "string" ? payload.merge.sessionId : "",
+            avatar: typeof payload.notify?.avatar === "string" ? payload.notify.avatar : (typeof payload.merge?.avatar === "string" ? payload.merge.avatar : ""),
+            ...(deliverAsCall ? { kind: "call", characterName: title, sessionId: callSessionId, callTs: Date.now() } : {}),
+          };
+          const messages = [
+            { topic: `shellpush:${job.user_id}`, event: "notify", payload: shellPayload },
+          ];
+          if (job.user_id !== "local_user") {
+            messages.push({ topic: "shellpush:local_user", event: "notify", payload: shellPayload });
+          }
           const response = await fetch(`${supabaseUrl}/realtime/v1/api/broadcast`, {
             method: "POST",
             headers: restHeaders,
-            body: JSON.stringify({
-              messages: [{
-                topic: `shellpush:${job.user_id}`,
-                event: "notify",
-                payload: {
-                  title: deliverAsCall ? `📞 ${title}` : title,
-                  body: partBody,
-                  url: targetUrl,
-                  sessionId: typeof payload.merge?.sessionId === "string" ? payload.merge.sessionId : "",
-                  avatar: typeof payload.notify?.avatar === "string" ? payload.notify.avatar : (typeof payload.merge?.avatar === "string" ? payload.merge.avatar : ""),
-                  // 老壳不认识这些字段 → 照常显示普通通知，自然向下兼容
-                  ...(deliverAsCall ? { kind: "call", characterName: title, sessionId: callSessionId, callTs: Date.now() } : {}),
-                },
-              }],
-            }),
+            body: JSON.stringify({ messages }),
           });
           await response.text().catch(() => undefined);
           if (response.ok) pushed += 1;

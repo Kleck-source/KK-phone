@@ -41,11 +41,14 @@ import kotlin.concurrent.thread
 class PushService : Service() {
 
     companion object {
-        private const val CH_KEEPALIVE = "shell_keepalive"
-        private const val CH_MESSAGES = "shell_messages"
-        private const val CH_CALLS = "shell_calls"
+        const val CH_KEEPALIVE = "shell_keepalive"
+        const val CH_MESSAGES = "shell_messages"
+        const val CH_MESSAGES_BG = "shell_messages_bg"
+        const val CH_CALLS = "shell_calls"
         private const val NOTIF_FG_ID = 1
         private var running = false
+        @Volatile var lastBannerTimeMs: Long = 0L
+        @Volatile var activeSessionId: String? = null
 
         fun start(context: Context) {
             if (running) return
@@ -341,6 +344,12 @@ class PushService : Service() {
             },
         )
         manager.createNotificationChannel(
+            NotificationChannel(CH_MESSAGES_BG, "角色消息(防打扰)", NotificationManager.IMPORTANCE_DEFAULT).apply {
+                description = "多角色或连续消息，放入通知栏不抢占当前输入焦点"
+                setShowBadge(true)
+            },
+        )
+        manager.createNotificationChannel(
             NotificationChannel(CH_CALLS, "角色来电", NotificationManager.IMPORTANCE_HIGH).apply {
                 description = "角色打来的语音电话（只振动，不响铃）"
                 setSound(null, null)
@@ -443,23 +452,46 @@ class PushService : Service() {
     }
 
     private fun showMessageNotification(title: String, body: String, sessionId: String? = null, avatarUrl: String? = null) {
-        val builder = NotificationCompat.Builder(this, CH_MESSAGES)
+        val sid = sessionId?.trim().orEmpty()
+        val now = System.currentTimeMillis()
+
+        // 防横幅打断/顶替逻辑：
+        // 如果 6 秒内刚弹出过悬浮横幅（用户可能正在查看或输入），
+        // 则此条降级为防打扰通道发送，安静落入通知抽屉，带角标和回复动作，绝不把当前正在输入的悬浮窗顶掉！
+        val isRapidSuccession = (now - lastBannerTimeMs) < 6000L
+        val channelId = if (isRapidSuccession) CH_MESSAGES_BG else CH_MESSAGES
+
+        if (!isRapidSuccession) {
+            lastBannerTimeMs = now
+            activeSessionId = sid
+        }
+
+        val builder = NotificationCompat.Builder(this, channelId)
             .setSmallIcon(R.drawable.ic_stat)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setAutoCancel(true)
             .setContentIntent(contentIntent(sessionId))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setPriority(if (isRapidSuccession) NotificationCompat.PRIORITY_DEFAULT else NotificationCompat.PRIORITY_HIGH)
+
         // 角色头像当通知大图标（服务端随广播带的 avatar：data URL 或直链）。
         // 取不到就退回默认图标——头像只是锦上添花，绝不能拖住或搞丢通知。
         loadAvatarBitmap(avatarUrl)?.let { builder.setLargeIcon(it) }
+
         // 带「回复」按钮：用户可以直接在通知横幅上回一句，不用点开 App。
         // 没有 sessionId 的通知（系统提醒类）挂了也没处送，所以只在有时才加。
-        val sid = sessionId?.trim().orEmpty()
         if (sid.isNotEmpty()) builder.addAction(buildReplyAction(sid))
-        getSystemService(NotificationManager::class.java).notify(notifId++, builder.build())
+
+        // 为每个角色会话分配独立的 Notification ID，不同角色独立共存互不顶替
+        val targetNotifId = if (sid.isNotEmpty()) {
+            1000 + (sid.hashCode() and 0x7FFFFFFF) % 8000
+        } else {
+            notifId++
+        }
         if (notifId > 400) notifId = 100
+
+        getSystemService(NotificationManager::class.java).notify(targetNotifId, builder.build())
     }
 
     /**

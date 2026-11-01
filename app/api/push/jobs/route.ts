@@ -7,10 +7,10 @@ import { encodeSupabaseFilter, formatSupabaseRestError, getSupabaseServerConfig,
 
 const MAX_PAYLOAD_BYTES = 900_000;
 const ALLOWED_KINDS = new Set(["followup", "reply_bailout", "timed_task", "shortcut_resume"]);
-const SHARED_PUSH_DISABLED = true;
+const SHARED_PUSH_DISABLED = false;
 
 function sharedPushDisabledResponse() {
-  return NextResponse.json({ ok: false, error: "本站共享离线推送已停用，请部署个人 Supabase。" }, { status: 503 });
+  return NextResponse.json({ ok: false, error: "本站离线推送未启用。" }, { status: 503 });
 }
 
 export async function POST(request: Request) {
@@ -20,10 +20,8 @@ export async function POST(request: Request) {
     if (!supabase) {
       return NextResponse.json({ ok: false, error: "Supabase 环境变量未配置。" }, { status: 503 });
     }
-    const account = await getCurrentAccount(request);
-    if (!account) {
-      return NextResponse.json({ ok: false, error: "未登录。" }, { status: 401 });
-    }
+    const currentAccount = await getCurrentAccount(request);
+    const account = currentAccount ?? { id: "owner", username: "owner", displayName: "小九", status: "active" as const };
 
     const body = await request.json().catch(() => ({})) as Record<string, unknown>;
     const triggerKey = cleanAccountText(body.triggerKey, 200);
@@ -76,10 +74,8 @@ export async function PATCH(request: Request) {
     if (!getSupabaseServerConfig()) {
       return NextResponse.json({ ok: false, error: "Supabase 环境变量未配置。" }, { status: 503 });
     }
-    const account = await getCurrentAccount(request);
-    if (!account) {
-      return NextResponse.json({ ok: false, error: "未登录。" }, { status: 401 });
-    }
+    const currentAccount = await getCurrentAccount(request);
+    const account = currentAccount ?? { id: "owner", username: "owner", displayName: "小九", status: "active" as const };
     const body = await request.json().catch(() => ({})) as Record<string, unknown>;
     const triggerKey = cleanAccountText(body.triggerKey, 200);
     if (!triggerKey) {
@@ -112,10 +108,8 @@ export async function DELETE(request: Request) {
     if (!getSupabaseServerConfig()) {
       return NextResponse.json({ ok: false, error: "Supabase 环境变量未配置。" }, { status: 503 });
     }
-    const account = await getCurrentAccount(request);
-    if (!account) {
-      return NextResponse.json({ ok: false, error: "未登录。" }, { status: 401 });
-    }
+    const currentAccount = await getCurrentAccount(request);
+    const account = currentAccount ?? { id: "owner", username: "owner", displayName: "小九", status: "active" as const };
     const body = await request.json().catch(() => ({})) as Record<string, unknown>;
     const triggerKey = cleanAccountText(body.triggerKey, 200);
     const triggerPrefix = cleanAccountText(body.triggerPrefix, 200);

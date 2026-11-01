@@ -339,36 +339,44 @@ async function postBailoutJob(input: {
     merge: Record<string, unknown>;
     weixinBotId?: string;
     shortcutContinuation?: OfflineShortcutContinuation | null;
-}): Promise<boolean> {
-    const response = await pushJobsFetch({
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            triggerKey: input.triggerKey,
-            kind: input.kind,
-            executeAt: new Date(input.executeAtMs).toISOString(),
-            payload: {
-                request: {
-                    url: input.request.url,
-                    headers: input.request.headers,
-                    body: input.request.body,
-                    providerKind: input.request.providerKind,
+}): Promise<{ ok: boolean; reason?: string }> {
+    try {
+        const response = await pushJobsFetch({
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                triggerKey: input.triggerKey,
+                kind: input.kind,
+                executeAt: new Date(input.executeAtMs).toISOString(),
+                payload: {
+                    request: {
+                        url: input.request.url,
+                        headers: input.request.headers,
+                        body: input.request.body,
+                        providerKind: input.request.providerKind,
+                    },
+                    notify: {
+                        title: input.notifyTitle,
+                        url: "/",
+                        ...(input.notifyAvatar ? { avatar: input.notifyAvatar } : {}),
+                    },
+                    ...(input.weixinBotId ? { weixin: { botId: input.weixinBotId } } : {}),
+                    ...(input.shortcutContinuation ? { shortcutContinuation: input.shortcutContinuation } : {}),
+                    merge: {
+                        ...input.merge,
+                        ...(input.notifyAvatar ? { avatar: input.notifyAvatar } : {}),
+                    },
                 },
-                notify: {
-                    title: input.notifyTitle,
-                    url: "/",
-                    ...(input.notifyAvatar ? { avatar: input.notifyAvatar } : {}),
-                },
-                ...(input.weixinBotId ? { weixin: { botId: input.weixinBotId } } : {}),
-                ...(input.shortcutContinuation ? { shortcutContinuation: input.shortcutContinuation } : {}),
-                merge: {
-                    ...input.merge,
-                    ...(input.notifyAvatar ? { avatar: input.notifyAvatar } : {}),
-                },
-            },
-        }),
-    }).catch(() => null);
-    return Boolean(response && response.ok);
+            }),
+        });
+        const data = await response.json().catch(() => null) as { ok?: boolean; error?: string } | null;
+        if (response.ok && data?.ok === true) {
+            return { ok: true };
+        }
+        return { ok: false, reason: data?.error || `HTTP ${response.status}` };
+    } catch (err) {
+        return { ok: false, reason: err instanceof Error ? err.message : String(err) };
+    }
 }
 
 /** 撤销任意兜底预约（精确键）。 */
@@ -479,7 +487,7 @@ export async function armIdleReconnectBailout(rule: IdleReconnectRule): Promise<
                 ...(remaining > 0 ? { idleRepeat: { intervalMs, remaining, quietWin: buildQuietWindowMeta() } } : {}),
             },
         });
-        if (!posted) return { ok: false, reason: "服务端预约接口没有确认成功" };
+        if (!posted.ok) return { ok: false, reason: posted.reason || "服务端预约接口没有确认成功" };
         // 清理不阻塞结果：新单已挂稳；旧键偶尔清不掉，下次任一重挂时机会再清
         void cancelBailoutPrefix(`idle:${rule.id}:`, triggerKey);
         // 服务端是"生成完才插入下一轮续排任务"——上面的清理可能赶在插入前跑完，
@@ -539,7 +547,7 @@ export async function armTimedWakeBailout(schedule: TimedWakeSchedule): Promise<
                 armAt: new Date(schedule.fireAt).toISOString(),
             },
         });
-        return posted ? { ok: true } : { ok: false, reason: "服务端预约接口没有确认成功" };
+        return posted.ok ? { ok: true } : { ok: false, reason: posted.reason || "服务端预约接口没有确认成功" };
     } catch (err) {
         console.warn("[PushBailout] timed wake arm failed:", err);
         return { ok: false, reason: err instanceof Error ? err.message : String(err) };

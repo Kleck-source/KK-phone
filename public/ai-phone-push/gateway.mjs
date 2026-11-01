@@ -575,7 +575,7 @@ Deno.serve(async (request: Request) => {
 
     if (action === "status" && request.method === "GET") {
       const rows = await readJson<Array<{ endpoint: string }>>(await rest(
-        `push_subscriptions?user_id=eq.${OWNER_ID}&select=endpoint&limit=1`,
+        `push_subscriptions?user_id=in.(${OWNER_ID},local_user)&select=endpoint&limit=1`,
       ));
       return json({ ok: true, subscribed: rows.length > 0 });
     }
