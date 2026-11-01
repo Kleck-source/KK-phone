@@ -126,7 +126,7 @@ import { WidgetRenderer } from "@/components/widgets/widget-renderer";
 import type { DIYWidgetTemplate } from "@/lib/widget-types";
 import { DebugPromptPanel } from "@/components/debug-prompt-panel";
 import { QuickActionFloat } from "@/components/quick-action-float";
-import { CHAT_MESSAGE_PUSHED_EVENT, CHAT_REQUEST_REPLY_EVENT, hydrateChatStorage, loadChatSessions, loadChatMessages, pushChatMessage, type ChatMessage, type ChatSession } from "@/lib/chat-storage";
+import { CHAT_MESSAGE_PUSHED_EVENT, CHAT_REQUEST_REPLY_EVENT, hydrateChatStorage, loadChatSessions, loadChatMessages, pushChatMessage, getNotificationDisplayMode, getNotificationReplyDelaySec, type ChatMessage, type ChatSession } from "@/lib/chat-storage";
 import { ensureGlobalBindingDefaults, resolveUserIdentity } from "@/lib/settings-storage";
 import { loadCharacters } from "@/lib/character-storage";
 import { generateChatCompletion, flattenCompletionResult } from "@/lib/chat-engine";
@@ -1042,6 +1042,7 @@ const MusicShellOverlays = memo(function MusicShellOverlays({
 
 export function DesktopShell({ initialThemeProfile, initialThemeAssets }: DesktopShellProps) {
   const musicOverlayControllerRef = useRef<MusicOverlayController | null>(null);
+  const replyAggregationTimersRef = useRef<Map<string, number>>(new Map());
   const handleMusicOverlayControllerChange = useCallback((controller: MusicOverlayController | null) => {
     musicOverlayControllerRef.current = controller;
   }, []);
@@ -2493,6 +2494,8 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:#121110;color:rgb
       const replies = JSON.parse(raw) as Array<{ id?: string; sessionId?: string; text?: string; at?: number }>;
       if (!Array.isArray(replies) || replies.length === 0) return;
 
+      const affectedSessions = new Set<string>();
+
       replies.forEach(item => {
         const sid = item.sessionId?.trim();
         const text = item.text?.trim();
@@ -2507,7 +2510,32 @@ html,body{margin:0;padding:0;width:100%;height:100%;background:#121110;color:rgb
         });
         cancelFollowUp(sid);
         window.dispatchEvent(new CustomEvent(CHAT_MESSAGE_PUSHED_EVENT, { detail: { sessionId: sid } }));
-        void requestBackgroundChatReply(sid);
+        affectedSessions.add(sid);
+      });
+
+      // 快捷回复防拆断（聚合等待期机制）：
+      // 当设置处于合并模式时，用户可能在通知栏连续发多句。
+      // 在设置的空窗期秒数（默认 10s）内持续打字则重置倒计时；空窗期过后才统一请求角色回复。
+      const displayMode = getNotificationDisplayMode();
+      const delaySec = getNotificationReplyDelaySec();
+
+      affectedSessions.forEach(sid => {
+        if (displayMode === "single" || delaySec <= 0) {
+          void requestBackgroundChatReply(sid);
+          return;
+        }
+
+        const existingTimer = replyAggregationTimersRef.current.get(sid);
+        if (existingTimer !== undefined) {
+          window.clearTimeout(existingTimer);
+        }
+
+        const timerId = window.setTimeout(() => {
+          replyAggregationTimersRef.current.delete(sid);
+          void requestBackgroundChatReply(sid);
+        }, delaySec * 1000);
+
+        replyAggregationTimersRef.current.set(sid, timerId);
       });
     } catch (e) {
       console.warn("[ShellReply] Failed to consume pending replies:", e);

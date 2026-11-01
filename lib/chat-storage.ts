@@ -266,11 +266,23 @@ export type ChatAppSettings = {
     promptViewerEnabled?: boolean; // When true, show the floating prompt viewer entry
     quickActionEnabled?: boolean; // When true, show the floating quick action entry
     browserNotificationsEnabled?: boolean; // When true, send browser Notification API alerts when page is hidden
+    notificationDisplayMode?: "bundled" | "single"; // 消息通知展示样式：合并多条弹窗 (bundled) 或 单条独立弹窗 (single，微信式顶替)
+    notificationReplyDelaySec?: number; // 快捷回复聚合等待期秒数（默认 10）
     enterToSendEnabled?: boolean; // When true, Enter sends chat input and Shift+Enter inserts a newline
     callVibrationEnabled?: boolean; // 语音/视频来电等待接听时循环振动（默认开；iOS 网页不支持振动则无效果）
     maxToolRounds?: number; // 单条消息的工具循环轮数上限（默认 5；每轮=一次模型请求，轮内调用条数不限）
     floatingDockEnabled?: boolean; // 悬浮球贴边半隐藏收拢模式（默认关）
 };
+
+export function getNotificationDisplayMode(): "bundled" | "single" {
+    return loadChatAppSettings().notificationDisplayMode || "bundled";
+}
+
+export function getNotificationReplyDelaySec(): number {
+    const raw = loadChatAppSettings().notificationReplyDelaySec;
+    if (typeof raw !== "number" || !Number.isFinite(raw)) return 10;
+    return Math.max(2, Math.min(60, Math.round(raw)));
+}
 
 /** 单条消息工具循环轮数上限（默认 5，夹在 1–20 之间） */
 export function getMaxToolRounds(): number {

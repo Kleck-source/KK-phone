@@ -824,6 +824,15 @@ class MainActivity : AppCompatActivity() {
         @JavascriptInterface
         fun openSystemSettings(which: String): Boolean = deviceAction.openSystemSettings(which)
 
+        /** 网页同步消息弹窗展示样式与快捷回复延迟秒数。 */
+        @JavascriptInterface
+        fun setNotificationMode(mode: String, replyDelaySec: Int) {
+            getSharedPreferences("shell_settings", Context.MODE_PRIVATE).edit()
+                .putString("notification_display_mode", mode)
+                .putInt("notification_reply_delay_sec", replyDelaySec)
+                .apply()
+        }
+
         /**
          * 让网页直接发一条真正的系统通知（网页侧封装在 lib/shell-notify.ts）。
          *
@@ -840,23 +849,55 @@ class MainActivity : AppCompatActivity() {
             ensureMessageChannel()
             val manager = getSystemService(NotificationManager::class.java)
             val icon = loadAvatarBitmap(avatarUrl)
+            val sid = sessionId?.trim().orEmpty()
+
+            val prefs = getSharedPreferences("shell_settings", Context.MODE_PRIVATE)
+            val mode = prefs.getString("notification_display_mode", "bundled") ?: "bundled"
+
             val builder = NotificationCompat.Builder(this@MainActivity, CH_MESSAGES)
                 .setSmallIcon(R.drawable.ic_stat)
-                .setContentTitle(title.ifBlank { "Float" })
-                .setContentText(body)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(body))
                 .setAutoCancel(true)
                 .setContentIntent(contentIntent(sessionId))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
+
             if (icon != null) builder.setLargeIcon(icon)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 builder.setColor(0xFF5B7CFA.toInt())
             }
-            // 带「回复」按钮：用户可以直接在横幅上回一句。这条路径是**页面活着时**
-            // 角色消息的主要通道（含查岗后角色的反馈），与 PushService 的离线推送
-            // 是两个入口，两边都得挂上，否则「有时能回、有时回不了」。
-            // 没有 sessionId 的通用提醒（如截屏提示）挂了也没处送，故只在有时加。
-            val sid = sessionId?.trim().orEmpty()
+
+            if (mode == "bundled" && sid.isNotEmpty()) {
+                val now = System.currentTimeMillis()
+                val lastTs = PushService.sessionLastTs[sid] ?: 0L
+                val msgList = PushService.sessionMessages.getOrPut(sid) { mutableListOf() }
+                if (now - lastTs > 180_000L) {
+                    msgList.clear()
+                }
+                PushService.sessionLastTs[sid] = now
+                body.split("\n").map { it.trim() }.filter { it.isNotEmpty() }.forEach { line ->
+                    msgList.add(line)
+                }
+
+                if (msgList.size > 1) {
+                    builder.setContentTitle(title.ifBlank { "Float" })
+                    builder.setContentText(msgList.first())
+                    builder.setSubText("${msgList.size}条新消息")
+                    val inbox = NotificationCompat.InboxStyle()
+                        .setBigContentTitle("${title.ifBlank { "Float" }} (${msgList.size}条消息)")
+                    for (msg in msgList) {
+                        inbox.addLine(msg)
+                    }
+                    builder.setStyle(inbox)
+                } else {
+                    builder.setContentTitle(title.ifBlank { "Float" })
+                    builder.setContentText(body)
+                    builder.setStyle(NotificationCompat.BigTextStyle().bigText(body))
+                }
+            } else {
+                builder.setContentTitle(title.ifBlank { "Float" })
+                builder.setContentText(body)
+                builder.setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            }
+
             if (sid.isNotEmpty()) {
                 // androidx 版（NotificationCompat.Action.addRemoteInput 只认它）：
                 // 用 android.app.RemoteInput 会因类型不匹配而编译失败。
@@ -882,8 +923,11 @@ class MainActivity : AppCompatActivity() {
                         .build(),
                 )
             }
-            manager.notify(webNotifId++, builder.build())
+
+            // 单条顶替与会话独立 ID：同一个 sid 固定同一个 ID，新消息直接替换上一条
+            val targetNotifId = if (sid.isNotEmpty()) 1000 + (sid.hashCode() and 0x7FFFFFFF) % 8000 else webNotifId++
             if (webNotifId > 900) webNotifId = 500
+            manager.notify(targetNotifId, builder.build())
             true
         }.getOrDefault(false)
 

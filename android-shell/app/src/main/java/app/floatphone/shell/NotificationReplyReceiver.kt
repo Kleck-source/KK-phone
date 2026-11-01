@@ -79,6 +79,8 @@ class NotificationReplyReceiver : BroadcastReceiver() {
 
         // 先落队列：无论页面现在活不活着，这句话都不会丢。
         enqueue(context, sessionId, text)
+        // 用户已在通知栏回复：清空当前会话的消息合并缓存，下一次角色回复开启新一轮
+        PushService.clearSessionBundle(sessionId)
 
         if (ShellBus.isWebAlive()) {
             // 页面还在（App 只是切到后台）：戳一下，它立刻把队列拉走发出去。

@@ -161,6 +161,8 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
     const [notifHint, setNotifHint] = useState<string | null>(null);
     const [notifChecking, setNotifChecking] = useState(false);
     const [notifTesting, setNotifTesting] = useState(false);
+    const [notifDisplayMode, setNotifDisplayMode] = useState<"bundled" | "single">("bundled");
+    const [notifReplyDelaySec, setNotifReplyDelaySec] = useState(10);
     const [showPushSettings, setShowPushSettings] = useState(false);
     const [enterToSendEnabled, setEnterToSendEnabled] = useState(false);
     const [callVibrationEnabled, setCallVibrationEnabled] = useState(true);
@@ -178,6 +180,10 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
         const settings = loadChatAppSettings();
         const browserGranted = isBrowserNotificationGranted();
         setNotifEnabled(settings.browserNotificationsEnabled === true && browserGranted);
+        setNotifDisplayMode(settings.notificationDisplayMode || "bundled");
+        setNotifReplyDelaySec(settings.notificationReplyDelaySec ?? 10);
+        const bridge = (window as unknown as { AndroidShell?: { setNotificationMode?: (m: string, s: number) => void } }).AndroidShell;
+        bridge?.setNotificationMode?.(settings.notificationDisplayMode || "bundled", settings.notificationReplyDelaySec ?? 10);
         setEnterToSendEnabled(settings.enterToSendEnabled === true);
         setCallVibrationEnabled(settings.callVibrationEnabled !== false);
         if (settings.browserNotificationsEnabled === true && !browserGranted) {
@@ -242,18 +248,46 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
         }
     };
 
+    const handleNotifDisplayModeChange = (mode: "bundled" | "single") => {
+        setNotifDisplayMode(mode);
+        saveChatAppSettings({ ...loadChatAppSettings(), notificationDisplayMode: mode });
+        const bridge = (window as unknown as { AndroidShell?: { setNotificationMode?: (m: string, s: number) => void } }).AndroidShell;
+        bridge?.setNotificationMode?.(mode, notifReplyDelaySec);
+    };
+
+    const handleNotifReplyDelayChange = (sec: number) => {
+        const clamped = Math.max(2, Math.min(60, sec));
+        setNotifReplyDelaySec(clamped);
+        saveChatAppSettings({ ...loadChatAppSettings(), notificationReplyDelaySec: clamped });
+        const bridge = (window as unknown as { AndroidShell?: { setNotificationMode?: (m: string, s: number) => void } }).AndroidShell;
+        bridge?.setNotificationMode?.(notifDisplayMode, clamped);
+    };
+
     const handleTestNotification = async () => {
         if (notifTesting) return;
         setNotifTesting(true);
         setNotifHint("正在发送测试弹窗通知...");
         try {
-            const res = await sendTestBrowserNotification("Float", {
-                body: "收到此横幅说明浏览器弹窗通知正常工作！",
-            });
-            if (res.ok) {
-                setNotifHint("已发送测试通知，请查看系统/浏览器横幅提醒。");
+            const bridge = (window as unknown as { AndroidShell?: { notify?: (title: string, body: string, avatar: string, sid?: string) => boolean } }).AndroidShell;
+            if (bridge && typeof bridge.notify === "function") {
+                if (notifDisplayMode === "single") {
+                    bridge.notify("小陆", "你干嘛呢？", "", "test_session");
+                    setTimeout(() => {
+                        bridge.notify?.("小陆", "我刚吃完饭", "", "test_session");
+                    }, 1200);
+                } else {
+                    bridge.notify("小陆", "你干嘛呢？\n我刚吃完饭\n你吃了没？", "", "test_session");
+                }
+                setNotifHint("已触发测试弹窗通知，请查看手机顶部提醒。");
             } else {
-                setNotifHint(res.message || "测试通知发送失败。");
+                const res = await sendTestBrowserNotification("小陆", {
+                    body: notifDisplayMode === "single" ? "你干嘛呢？" : "你干嘛呢？\n我刚吃完饭\n你吃了没？",
+                });
+                if (res.ok) {
+                    setNotifHint("已发送测试通知，请查看系统/浏览器横幅提醒。");
+                } else {
+                    setNotifHint(res.message || "测试通知发送失败。");
+                }
             }
         } catch (err) {
             setNotifHint(err instanceof Error ? err.message : "测试通知发送异常。");
@@ -468,25 +502,56 @@ export function UserProfilePanel({ onClose, className }: UserProfilePanelProps) 
                             <Toggle checked={callVibrationEnabled} onChange={handleCallVibrationToggle} />
                         </div>
 
-                        <div className="flex items-center gap-3 py-3 w-full">
-                            <Bell size={18} className="text-[var(--c-icon)] opacity-70" strokeWidth={1.25}/>
-                            <div className="flex flex-col flex-1 text-left gap-0.5">
-                                <span className="ts-14 font-semibold text-[var(--c-text-title)]">浏览器后台通知</span>
-                                <span className="ts-11 text-[var(--c-text)] opacity-70">{notifHint || "允许网页在后台时弹出新消息横幅提醒"}</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                {notifEnabled && (
+                        <div className="flex flex-col gap-2.5 py-3 w-full">
+                            <div className="flex items-center gap-3 w-full">
+                                <Bell size={18} className="text-[var(--c-icon)] opacity-70" strokeWidth={1.25}/>
+                                <div className="flex flex-col flex-1 text-left gap-0.5">
+                                    <span className="ts-14 font-semibold text-[var(--c-text-title)]">消息通知展示样式</span>
+                                    <span className="ts-11 text-[var(--c-text)] opacity-70">
+                                        {notifDisplayMode === "bundled"
+                                            ? "角色连发多条时合并为一个弹窗展示"
+                                            : "角色一条一条发，新的顶替旧的（微信式顶替）"}
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-2">
                                     <button
                                         type="button"
                                         className="h-7 px-2.5 rounded-full text-xs font-semibold bg-black/5 dark:bg-white/10 text-[var(--c-text-title)] hover:bg-black/10 dark:hover:bg-white/20 active:scale-95 transition-all disabled:opacity-50"
-                                        disabled={notifTesting || notifChecking}
+                                        disabled={notifTesting}
                                         onClick={handleTestNotification}
                                     >
                                         {notifTesting ? "测试中" : "测试"}
                                     </button>
-                                )}
-                                <Toggle checked={notifEnabled} disabled={notifChecking} onChange={handleNotificationToggle} />
+                                    <select
+                                        className="h-7 px-2 text-xs font-semibold rounded-lg bg-black/5 dark:bg-white/10 text-[var(--c-text-title)] border border-[color-mix(in_srgb,var(--c-card-border)_40%,transparent)] outline-none cursor-pointer"
+                                        value={notifDisplayMode}
+                                        onChange={e => handleNotifDisplayModeChange(e.target.value as "bundled" | "single")}
+                                    >
+                                        <option value="bundled">合并多条弹窗</option>
+                                        <option value="single">单条独立弹窗</option>
+                                    </select>
+                                </div>
                             </div>
+
+                            {notifDisplayMode === "bundled" && (
+                                <div className="ml-7 flex items-center justify-between p-2.5 rounded-xl bg-black/[0.03] dark:bg-white/[0.04] border border-[color-mix(in_srgb,var(--c-card-border)_15%,transparent)]">
+                                    <div className="flex flex-col text-left gap-0.5">
+                                        <span className="ts-12 font-semibold text-[var(--c-text-title)]">快捷回复聚合等待期</span>
+                                        <span className="ts-10 text-[var(--c-text)] opacity-60">打多句话连续回复时，空窗几秒后角色再统一合并回复</span>
+                                    </div>
+                                    <div className="flex items-center gap-1.5 shrink-0">
+                                        <input
+                                            type="number"
+                                            min={2}
+                                            max={60}
+                                            value={notifReplyDelaySec}
+                                            onChange={e => handleNotifReplyDelayChange(parseInt(e.target.value) || 10)}
+                                            className="w-12 h-6 text-center text-xs font-bold rounded bg-white dark:bg-black/20 border border-[color-mix(in_srgb,var(--c-card-border)_40%,transparent)] text-[var(--c-text-title)] outline-none"
+                                        />
+                                        <span className="ts-11 text-[var(--c-text)] opacity-70">秒</span>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
 
